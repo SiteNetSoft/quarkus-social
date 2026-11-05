@@ -10,7 +10,8 @@
 
 |`Published(url, refs, note, resent)`
 |The network has the post. `url` is a link a person can open. `refs` holds protocol ids as strings. `resent` is true
-when the network already had the post and its old result is returned again.
+when this call sent the post to the network, false when the network already had it and its stored result is
+returned again.
 
 |`Skipped(reason, detail)`
 |Nothing was sent, on purpose. Reasons: `NOT_LINKED`, `VISIBILITY_NOT_SUPPORTED`, `KIND_NOT_SUPPORTED`,
@@ -36,7 +37,7 @@ xref:activitypub.adoc[].
 The store records, per post and network, what was written.
 
 * Call `publish` again with the same post id to retry. A network where the post is `Published` is left alone (its
-  old result is returned, `resent = true`). Every other targeted network is tried again, writing only what is
+  stored result is returned, `resent = false`). Every other targeted network is tried again, writing only what is
   missing: a `Failed` network, and `Skipped(NOT_LINKED)` or `Skipped(DISABLED_BY_CONFIG)` (the account may have been
   linked, the setting changed).
 * *A repeated `publish` retries the stored post*, as first published (content and publication time); the content of
