@@ -1,31 +1,52 @@
 package org.sitenetsoft.quarkus.social.hibernate;
 
-import java.io.Serializable;
-import java.util.Objects;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.IdClass;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
-/** One protocol id on one network and the post it belongs to ({@code social_ref}); answers {@code findPostIdByRef}. */
+/**
+ * One protocol id on one network and the post it belongs to ({@code social_ref}); answers {@code findPostIdByRef}.
+ * Not unique: two posts may carry the same ref value. {@code ref_hash} (lowercase SHA-256 hex of {@code ref}) keeps
+ * the lookup index short; the lookup compares {@code ref} exactly.
+ */
 @Entity
-@Table(name = "social_ref", indexes = @Index(name = "social_ref_post_idx", columnList = "post_id"))
-@IdClass(SocialRefEntity.Key.class)
+@Table(name = "social_ref", indexes = {
+        @Index(name = "social_ref_lookup_idx", columnList = "network, ref_hash"),
+        @Index(name = "social_ref_post_idx", columnList = "post_id") })
 public class SocialRefEntity {
 
     @Id
-    @Column(name = "network", length = 64)
-    private String network;
-
-    @Id
-    @Column(name = "ref", length = 1024)
-    private String ref;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
+    private Long id;
 
     @Column(name = "post_id", nullable = false, length = 256)
     private String postId;
+
+    @Column(name = "network", nullable = false, length = 64)
+    private String network;
+
+    @Column(name = "ref", nullable = false, length = 1024)
+    private String ref;
+
+    @Column(name = "ref_hash", nullable = false, length = 64)
+    private String refHash;
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getPostId() {
+        return postId;
+    }
+
+    public void setPostId(String postId) {
+        this.postId = postId;
+    }
 
     public String getNetwork() {
         return network;
@@ -43,38 +64,11 @@ public class SocialRefEntity {
         this.ref = ref;
     }
 
-    public String getPostId() {
-        return postId;
+    public String getRefHash() {
+        return refHash;
     }
 
-    public void setPostId(String postId) {
-        this.postId = postId;
-    }
-
-    /** The primary key {@code (network, ref)}. */
-    public static class Key implements Serializable {
-
-        private static final long serialVersionUID = 1L;
-
-        public String network;
-        public String ref;
-
-        public Key() {
-        }
-
-        public Key(String network, String ref) {
-            this.network = network;
-            this.ref = ref;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            return o instanceof Key k && Objects.equals(network, k.network) && Objects.equals(ref, k.ref);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(network, ref);
-        }
+    public void setRefHash(String refHash) {
+        this.refHash = refHash;
     }
 }

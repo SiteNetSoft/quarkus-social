@@ -13,5 +13,5 @@ publish a post twice.
   and a lost compare-and-set must not mark the caller's transaction rollback-only.
 - `replace` is a compare-and-set on `social_post.version` (`@Version`). `social_ref` is rewritten with the network
   states, so a ref that no longer exists stops resolving to the post.
-- `social_ref.ref` is 1024 characters; a longer ref (a very long url) fails the write.
+- `social_ref` is not unique: posts may share a ref value (lookup by network + SHA-256 of the ref, then exact compare). The engine's reserved `_url` ref is not indexed. A ref over 1024 characters fails the write.
 - Do not write the `social_*` tables yourself, and do not call the store from the event loop.

@@ -101,7 +101,36 @@ public abstract class SocialPostStoreContractTest {
         assertTrue(store().findPostIdByRef(Network.ACTIVITYPUB, ref2).isEmpty());
         assertEquals(Optional.of(id), store().findPostIdByRef(Network.ATPROTO, recreated));
         assertEquals(Optional.of(id), store().findPostIdByRef(Network.ATPROTO, "cid-" + id));
-        assertEquals(Optional.of(id), store().findPostIdByRef(Network.ATPROTO, "https://blog.example/" + id));
+        // the engine's reserved url ref is not indexed
+        assertTrue(store().findPostIdByRef(Network.ATPROTO, "https://blog.example/" + id).isEmpty());
+    }
+
+    @Test
+    public void postsMayShareARef() {
+        String a = id();
+        String b = id();
+        String shared = "https://ap-test.example.net/objects/shared-" + a;
+        String url = "https://blog.example/same-canonical-url";
+        Map<Network, NetworkState> state = Map.of(Network.ACTIVITYPUB,
+                published(Network.ACTIVITYPUB, Map.of("object", shared, NetworkState.URL_REF, url)));
+        assertTrue(store().insert(stored(a, Map.of())));
+        assertTrue(store().insert(stored(b, Map.of())));
+        assertTrue(store().replace(stored(a, state), 0));
+        assertTrue(store().replace(stored(b, state), 0));
+        Optional<String> found = store().findPostIdByRef(Network.ACTIVITYPUB, shared);
+        assertTrue(found.isPresent() && (found.get().equals(a) || found.get().equals(b)), found.toString());
+        // an update of one of them still works
+        assertTrue(store().replace(stored(b, state), 1));
+        assertTrue(store().findPostIdByRef(Network.ACTIVITYPUB, shared).isPresent());
+    }
+
+    @Test
+    public void insertKeepsTheGivenVersion() {
+        String id = id();
+        assertTrue(store().insert(stored(id, Map.of()).withVersion(5)));
+        assertEquals(5, store().find(id).orElseThrow().version());
+        assertTrue(store().replace(stored(id, Map.of()), 5));
+        assertEquals(6, store().find(id).orElseThrow().version());
     }
 
     @Test

@@ -43,8 +43,7 @@ import io.quarkus.narayana.jta.QuarkusTransaction;
  * same as joining.
  *
  * <p>
- * <b>Versions.</b> A new row starts at version 0 (the {@code version} of the inserted {@code StoredPost} is not
- * used); every {@code replace} stores {@code expectedVersion + 1}.
+ * <b>Versions.</b> A new row starts at the {@code version} of the inserted {@code StoredPost}; every {@code replace} stores {@code expectedVersion + 1}.
  *
  * <p>
  * <b>Compare-and-set.</b> {@code replace} loads the row, compares the version, updates the row (Hibernate adds
@@ -57,6 +56,9 @@ public class HibernateSocialPostStore implements SocialPostStore {
 
     private static final TypeReference<Map<String, String>> REFS = new TypeReference<>() {
     };
+
+    /** Upper bound of {@link #recent}; keeps the state lookup's IN list within database limits. */
+    static final int MAX_RECENT = 1000;
 
     @Inject
     EntityManager em;
@@ -93,6 +95,7 @@ public class HibernateSocialPostStore implements SocialPostStore {
                 Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
                 SocialPostEntity entity = new SocialPostEntity();
                 entity.setPostId(post.postId());
+                entity.setVersion(post.version());
                 entity.setCreatedAt(now);
                 fill(entity, post, now);
                 em.persist(entity);
@@ -138,9 +141,10 @@ public class HibernateSocialPostStore implements SocialPostStore {
     @Override
     public Optional<String> findPostIdByRef(Network network, String ref) {
         return inTransaction(() -> em
-                .createQuery("select r.postId from SocialRefEntity r where r.network = :network and r.ref = :ref",
-                        String.class)
-                .setParameter("network", network.id()).setParameter("ref", ref).getResultStream().findFirst());
+                .createQuery("select r.postId from SocialRefEntity r where r.network = :network "
+                        + "and r.refHash = :hash and r.ref = :ref order by r.id", String.class)
+                .setParameter("network", network.id()).setParameter("hash", sha256(ref)).setParameter("ref", ref)
+                .setMaxResults(1).getResultList().stream().findFirst());
     }
 
     @Override
@@ -148,11 +152,12 @@ public class HibernateSocialPostStore implements SocialPostStore {
         if (limit <= 0) {
             return List.of();
         }
+        int max = Math.min(limit, MAX_RECENT);
         return inTransaction(() -> {
             List<SocialPostEntity> posts = em
                     .createQuery("select p from SocialPostEntity p order by p.updatedAt desc, p.postId desc",
                             SocialPostEntity.class)
-                    .setMaxResults(limit).getResultList();
+                    .setMaxResults(max).getResultList();
             Map<String, List<SocialNetworkStateEntity>> states = statesOf(posts.stream().map(SocialPostEntity::getPostId).toList());
             return posts.stream().map(p -> toStored(p, states.getOrDefault(p.getPostId(), List.of()))).toList();
         });
@@ -188,11 +193,17 @@ public class HibernateSocialPostStore implements SocialPostStore {
                 row.setPending(d.pending());
             });
             em.persist(row);
-            Set<String> distinct = new LinkedHashSet<>(state.refs().values());
+            Set<String> distinct = new LinkedHashSet<>();
+            state.refs().forEach((name, value) -> {
+                if (!NetworkState.URL_REF.equals(name)) {
+                    distinct.add(value);
+                }
+            });
             for (String ref : distinct) {
                 SocialRefEntity refRow = new SocialRefEntity();
                 refRow.setNetwork(row.getNetwork());
                 refRow.setRef(ref);
+                refRow.setRefHash(sha256(ref));
                 refRow.setPostId(post.postId());
                 em.persist(refRow);
             }
@@ -219,6 +230,15 @@ public class HibernateSocialPostStore implements SocialPostStore {
         return new StoredPost(entity.getPostId(), entity.getAccount(), Kind.valueOf(entity.getKind()),
                 Visibility.valueOf(entity.getVisibility()), read(entity.getSnapshot(), new TypeReference<PostSnapshot>() {
                 }).toPost(), networks, entity.getVersion());
+    }
+
+    private static String sha256(String value) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private String write(Object value) {

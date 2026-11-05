@@ -24,7 +24,7 @@ class SocialHibernateProcessor {
     AdditionalIndexedClassesBuildItem entities() {
         return new AdditionalIndexedClassesBuildItem(SocialPostEntity.class.getName(),
                 SocialNetworkStateEntity.class.getName(), SocialNetworkStateEntity.Key.class.getName(),
-                SocialRefEntity.class.getName(), SocialRefEntity.Key.class.getName());
+                SocialRefEntity.class.getName());
     }
 
     @BuildStep

@@ -69,7 +69,8 @@ public class InMemorySocialPostStore implements SocialPostStore {
                 .map(Entry::post)
                 .filter(p -> {
                     NetworkState state = p.networks().get(network);
-                    return state != null && state.refs().containsValue(ref);
+                    return state != null && state.refs().entrySet().stream()
+                            .anyMatch(e -> !NetworkState.URL_REF.equals(e.getKey()) && e.getValue().equals(ref));
                 })
                 .map(StoredPost::postId)
                 .findFirst();
