@@ -36,6 +36,12 @@ equal to the request's own scheme, host and port. Behind a TLS proxy the applica
 unless it trusts the forwarded headers, and the check answers 403 `changes must come from this site's own pages`. The
 AT Protocol login endpoint applies the same rule against `client-base-url`.
 
+|`quarkus.http.host=127.0.0.1`
+|Trusting forwarded headers is safe only when every request comes through the TLS proxy: anyone reaching port 8080
+directly could send their own `X-Forwarded-*` headers. Binding to the loopback interface leaves the proxy (or tunnel,
+on the same machine) the only way in. With the proxy on another machine, keep the public bind and set
+`quarkus.http.proxy.trusted-proxies` to the proxy's address instead.
+
 |`QUARKUS_SECURITY_USERS_EMBEDDED_USERS_ANN`
 |The sample defines its user `ann` only in dev and test profiles. In production supply the password from the
 environment (the property `quarkus.security.users.embedded.users.ann`). `ann` is both the application user (basic
@@ -74,6 +80,7 @@ java -Dquarkus.activitypub.base-url=https://ap-test.example.net \
      -Dquarkus.http.proxy.proxy-address-forwarding=true \
      -Dquarkus.http.proxy.allow-x-forwarded=true \
      -Dquarkus.http.proxy.enable-forwarded-host=true \
+     -Dquarkus.http.host=127.0.0.1 \
      -jar integration-tests/target/quarkus-app/quarkus-run.jar
 ----
 +
