@@ -22,6 +22,7 @@
     <module>atproto/deployment</module>
     <module>hibernate/runtime</module>
     <module>hibernate/deployment</module>
+    <module>integration-tests</module>
     <module>bom</module>
   </modules>
   <properties>
@@ -31,6 +32,7 @@
     <surefire-plugin.version>3.5.3</surefire-plugin.version>
     <compiler-plugin.version>3.14.0</compiler-plugin.version>
     <jsoup.version>1.24.1</jsoup.version>
+    <build-helper-plugin.version>3.6.1</build-helper-plugin.version>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -69,6 +71,11 @@
               </path>
             </annotationProcessorPaths>
           </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>${build-helper-plugin.version}</version>
         </plugin>
         <plugin>
           <artifactId>maven-surefire-plugin</artifactId>

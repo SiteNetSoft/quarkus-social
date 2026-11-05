@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.sitenetsoft.quarkus</groupId>
+    <artifactId>quarkus-social-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>quarkus-social-integration-tests</artifactId>
+  <name>Quarkus Social - Integration Tests</name>
+  <description>Sample app: one publish to a fake Mastodon (ActivityPub) and a fake Bluesky (AT Protocol)</description>
+  <dependencies>
+    <!-- the application's dependencies, as in the getting-started guide. No dependency on quarkus-social-activitypub or
+         quarkus-social-atproto: they are conditional dependencies of quarkus-social, activated by quarkus-activitypub
+         and quarkus-atproto-oauth, and the ITs check both adapters are active -->
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-hibernate</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-activitypub</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-activitypub-hibernate</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-atproto-oauth</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-jdbc-h2</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-rest-jackson</artifactId></dependency>
+    <!-- the application's own sign-in: basic auth with embedded users -->
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-elytron-security-properties-file</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-junit</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.awaitility</groupId><artifactId>awaitility</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-activitypub-test</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-atproto-test</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-test</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+    <!-- reactor ordering only: the Quarkus build of this app resolves these deployment modules (and, through the
+         conditional dependencies, the adapters' runtime modules), so they must be built before it, also in a parallel
+         (-T) build and with -pl integration-tests -am; type pom with exclusions adds nothing to the class path -->
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-deployment</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-hibernate-deployment</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-activitypub-deployment</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-atproto-deployment</artifactId><version>${project.version}</version><type>pom</type><scope>test</scope><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-maven-plugin</artifactId>
+        <version>${quarkus.version}</version>
+        <extensions>true</extensions>
+        <executions>
+          <execution>
+            <goals><goal>build</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin><artifactId>maven-compiler-plugin</artifactId><configuration><annotationProcessorPaths combine.self="override"/><proc>none</proc></configuration></plugin>
+      <plugin><artifactId>maven-surefire-plugin</artifactId></plugin>
+      <plugin>
+        <!-- a free port for the packaged application: the fake authorization server fetches the client metadata from it,
+             and it is the ActivityPub base URL the fake fediverse server talks to -->
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>reserve-app-port</id>
+            <phase>pre-integration-test</phase>
+            <goals><goal>reserve-network-port</goal></goals>
+            <configuration><portNames><portName>social.it.port</portName></portNames></configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <!-- the ITs against the packaged app: the jar by default, the native executable with -Dnative -->
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>${surefire-plugin.version}</version>
+        <executions>
+          <execution>
+            <goals><goal>integration-test</goal><goal>verify</goal></goals>
+          </execution>
+        </executions>
+        <configuration>
+          <systemPropertyVariables>
+            <native.image.path>${project.build.directory}/${project.build.finalName}-runner</native.image.path>
+            <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+            <maven.home>${maven.home}</maven.home>
+            <quarkus.http.test-port>${social.it.port}</quarkus.http.test-port>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <profiles>
+    <profile>
+      <id>native</id>
+      <activation><property><name>native</name></property></activation>
+      <properties>
+        <quarkus.native.enabled>true</quarkus.native.enabled>
+        <quarkus.package.jar.enabled>false</quarkus.package.jar.enabled>
+      </properties>
+    </profile>
+  </profiles>
+</project>
