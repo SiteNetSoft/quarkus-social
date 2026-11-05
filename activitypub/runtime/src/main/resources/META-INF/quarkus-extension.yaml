@@ -1,0 +1,13 @@
+name: "Social ActivityPub"
+artifact: ${project.groupId}:${project.artifactId}:${project.version}
+description: "Publishes quarkus-social posts to the Fediverse through quarkus-activitypub"
+metadata:
+  keywords:
+    - "social"
+    - "activitypub"
+    - "mastodon"
+    - "fediverse"
+  guide: "https://github.com/SiteNetSoft/quarkus-social"
+  categories:
+    - "web"
+  status: "experimental"

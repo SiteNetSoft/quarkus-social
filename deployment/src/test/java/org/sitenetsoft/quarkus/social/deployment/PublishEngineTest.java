@@ -345,6 +345,8 @@ public class PublishEngineTest {
         }
         String pom = runtimePom();
         assertTrue(pom.contains("<artifactId>quarkus-social</artifactId>"), "not the runtime POM");
+        // the adapters are listed as conditional dependencies of the extension descriptor, not as Maven dependencies
+        pom = pom.replaceAll("(?s)<conditionalDependencies>.*?</conditionalDependencies>", "");
         for (String word : List.of("activitypub", "atproto", "activitystreams")) {
             assertFalse(pom.contains(word), "runtime POM mentions " + word);
         }

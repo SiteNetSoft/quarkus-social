@@ -16,6 +16,8 @@
     <module>runtime</module>
     <module>deployment</module>
     <module>test</module>
+    <module>activitypub/runtime</module>
+    <module>activitypub/deployment</module>
     <module>bom</module>
   </modules>
   <properties>
