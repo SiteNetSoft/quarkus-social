@@ -18,6 +18,8 @@ import org.sitenetsoft.quarkus.social.store.NetworkState.Status;
 final class States {
 
     static final String IN_PROGRESS_DETAIL = "another publish of this post is in progress";
+    /** An update or delete meeting a live publish lease. */
+    static final String PUBLISH_RUNNING_DETAIL = "a publish of this post is in progress";
 
     private States() {
     }

@@ -2,6 +2,7 @@ package org.sitenetsoft.quarkus.social.engine;
 
 import org.sitenetsoft.quarkus.social.Post;
 import org.sitenetsoft.quarkus.social.SocialException;
+import org.sitenetsoft.quarkus.social.content.PostContent;
 import org.sitenetsoft.quarkus.social.store.NetworkState.Status;
 import org.sitenetsoft.quarkus.social.store.StoredPost;
 
@@ -31,6 +32,13 @@ final class Checks {
     static void requirePost(Post post) {
         if (post == null) {
             throw new SocialException("post must not be null");
+        }
+    }
+
+    /** Html that sanitizes to nothing (only a {@code <script>}, say) and no text leaves nothing to publish. */
+    static void requireContent(Post post) {
+        if (PostContent.of(post).text().isBlank()) {
+            throw new SocialException("post " + post.id() + " has no content after sanitizing");
         }
     }
 

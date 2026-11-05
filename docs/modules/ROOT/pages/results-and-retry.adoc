@@ -69,7 +69,15 @@ Several nodes can share one store (`quarkus-social-hibernate` or your own). The 
 (state `Failed` with code `IN_PROGRESS`, valid for the timeout plus 30 seconds) before it calls an adapter, so two
 nodes never send the same post to a network at once: the second gets `Failed(IN_PROGRESS)`, retryable, and sees the
 first call's result once it has finished. A node that crashed mid-publish blocks the network only until its lease
-expires.
+expires. An `update` or `delete` that meets another node's live lease answers `Failed(IN_PROGRESS)` (retryable) for
+that network without calling it; the other networks go ahead.
+
+The lease guarantees nothing after a timeout: the engine stops waiting for an adapter call after
+`quarkus.social.timeout`, but the call itself may still be running when the lease expires, and a retry then calls the
+network again. Duplicates are prevented there by the adapters: each keeps a per-process guard against a second
+publish of a post while one is still running (it answers `Failed(IN_PROGRESS)`), and both derive protocol ids from
+the post (ActivityPub object ids, AT Protocol record keys), so a retry finds what the earlier call wrote instead of
+writing it again.
 
 ActivityPub delivery itself is single-node, as in `quarkus-activitypub`: the delivery queue runs where the post was
 published, and so do the delivery counts that arrive afterwards as `SocialDeliveryProgress`.
@@ -85,7 +93,8 @@ deletes, content warnings, text limit (`maxTextGraphemes`), HTML and interaction
 
 |Visibilities |`PUBLIC`, `UNLISTED`, `FOLLOWERS` |`PUBLIC` only
 |Kinds |`NOTE`, `ARTICLE` |`NOTE`, `ARTICLE`
-|Content warnings |yes |per setting (`skip` by default)
+|Edits |yes |yes, except `output=post` with `edit-post=keep` (nothing is edited)
+|Content warnings |yes |only with `content-warning=label:<value>` (`skip` by default)
 |Text limit |none enforced |300 graphemes for the post text
 |Interactions |yes |not yet (Milestone 5)
 |===

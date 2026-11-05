@@ -10,7 +10,11 @@ import static org.sitenetsoft.quarkus.social.test.SocialAssertions.assertPublish
 import static org.sitenetsoft.quarkus.social.test.SocialAssertions.assertSkipped;
 
 import java.net.URI;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import jakarta.inject.Inject;
@@ -20,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.sitenetsoft.quarkus.social.FailureCode;
 import org.sitenetsoft.quarkus.social.Kind;
+import org.sitenetsoft.quarkus.social.Network;
+import org.sitenetsoft.quarkus.social.NetworkResult;
 import org.sitenetsoft.quarkus.social.Post;
 import org.sitenetsoft.quarkus.social.PublishResult;
 import org.sitenetsoft.quarkus.social.SkipReason;
@@ -27,6 +33,7 @@ import org.sitenetsoft.quarkus.social.Social;
 import org.sitenetsoft.quarkus.social.SocialException;
 import org.sitenetsoft.quarkus.social.Visibility;
 import org.sitenetsoft.quarkus.social.store.NetworkState;
+import org.sitenetsoft.quarkus.social.store.SocialPostStore;
 import org.sitenetsoft.quarkus.social.store.StoredPost;
 import org.sitenetsoft.quarkus.social.test.RecordingSocialAdapter.Operation;
 import org.sitenetsoft.quarkus.social.test.RecordingSocialAdapter.RecordedRequest;
@@ -47,6 +54,8 @@ public class UpdateRulesTest {
     TestAdapters.AdapterA a;
     @Inject
     TestAdapters.AdapterB b;
+    @Inject
+    SocialPostStore store;
 
     @BeforeEach
     void reset() {
@@ -181,5 +190,86 @@ public class UpdateRulesTest {
         assertThrows(SocialException.class, () -> social.update("mallory", note(id, "Mine now")));
         assertThrows(SocialException.class, () -> social.delete("mallory", id));
         assertEquals(1, a.requests().size());
+    }
+
+    @Test
+    void updateKeepsThePublicationTime() {
+        String id = newId();
+        Instant t0 = Instant.parse("2026-11-01T10:00:00.123456Z");
+        a.failNext(FailureCode.UNAVAILABLE, true);
+        social.publish("alice", Post.builder(id).text("Hello").publishedAt(t0).build());
+
+        // the edit is built afresh: its publishedAt defaults to now
+        Post edited = note(id, "Edited");
+        assertTrue(edited.publishedAt().isAfter(t0));
+        assertPublished(social.update("alice", edited), B);
+        assertEquals(t0, b.requests().get(1).request().post().publishedAt());
+        assertEquals(t0, social.status(id).orElseThrow().snapshot().publishedAt());
+        assertEquals("Edited", social.status(id).orElseThrow().snapshot().text().orElseThrow());
+
+        // the retried publish sends the stored post, still at t0 (protocol ids derive from it)
+        assertPublished(social.publish("alice", note(id, "ignored")), A);
+        RecordedRequest retry = a.requests().get(1);
+        assertEquals(Operation.PUBLISH, retry.operation());
+        assertEquals(t0, retry.request().post().publishedAt());
+        assertEquals("Edited", retry.request().content().text());
+    }
+
+    @Test
+    void contentThatSanitizesToNothingThrows() {
+        String id = newId();
+        Post empty = Post.builder(id).html("<script>alert(1)</script>").build();
+        SocialException e = assertThrows(SocialException.class, () -> social.publish("alice", empty));
+        assertEquals("post " + id + " has no content after sanitizing", e.getMessage());
+        assertTrue(a.requests().isEmpty() && b.requests().isEmpty());
+        assertTrue(social.status(id).isEmpty());
+
+        social.publish("alice", note(id, "Hello"));
+        e = assertThrows(SocialException.class, () -> social.update("alice", empty));
+        assertEquals("post " + id + " has no content after sanitizing", e.getMessage());
+        assertEquals(1, a.requests().size());
+        assertEquals("Hello", social.status(id).orElseThrow().snapshot().text().orElseThrow());
+    }
+
+    @Test
+    void liveLeaseMakesUpdateAndDeleteInProgress() {
+        String id = newId();
+        social.publish("alice", note(id, "Hello"));
+        // another node's publish run holds a lease on A (as after a lost race, refs kept)
+        lease(id, A, Instant.now());
+
+        PublishResult updated = social.update("alice", note(id, "Edited"));
+        NetworkResult.Failed f = assertFailed(updated, A, FailureCode.IN_PROGRESS);
+        assertTrue(f.retryable());
+        assertEquals("a publish of this post is in progress", f.reason());
+        assertPublished(updated, B);
+
+        PublishResult deleted = social.delete("alice", id);
+        f = assertFailed(deleted, A, FailureCode.IN_PROGRESS);
+        assertTrue(f.retryable());
+        assertEquals("a publish of this post is in progress", f.reason());
+        assertPublished(deleted, B);
+        assertEquals(1, a.requests().size(), "A's adapter is not called while the lease lives");
+        StoredPost stored = social.status(id).orElseThrow();
+        assertEquals(NetworkState.Status.FAILED, stored.networks().get(A).status());
+        assertEquals(NetworkState.Status.DELETED, stored.networks().get(B).status());
+
+        // once the lease expires, the delete goes through
+        lease(id, A, Instant.now().minus(Duration.ofHours(1)));
+        PublishResult again = social.delete("alice", id);
+        assertPublished(again, A);
+        assertEquals(Operation.DELETE, a.requests().get(1).operation());
+        assertEquals(NetworkState.Status.DELETED, social.status(id).orElseThrow().networks().get(A).status());
+    }
+
+    /** Writes a publish lease on {@code network} taken at {@code at}, keeping the refs already stored. */
+    private void lease(String id, Network network, Instant at) {
+        StoredPost current = store.find(id).orElseThrow();
+        Map<Network, NetworkState> states = new LinkedHashMap<>(current.networks());
+        states.put(network, new NetworkState(network, NetworkState.Status.FAILED, states.get(network).refs(),
+                Optional.of("IN_PROGRESS"), Optional.of("another publish of this post is in progress"), at,
+                Optional.empty()));
+        assertTrue(store.replace(new StoredPost(current.postId(), current.account(), current.kind(),
+                current.visibility(), current.snapshot(), states, current.version()), current.version()));
     }
 }

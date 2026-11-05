@@ -118,6 +118,7 @@ public class PublishEngine {
         return Uni.createFrom().deferred(() -> {
             Checks.requireAccount(account);
             Checks.requirePost(post);
+            Checks.requireContent(post);
             Map<Network, SocialAdapter> targets = targets(post);
             return detached(locks.withLock(post.id(), () -> startPublish(account, post, targets)));
         });
@@ -248,11 +249,14 @@ public class PublishEngine {
         return Uni.createFrom().deferred(() -> {
             Checks.requireAccount(account);
             Checks.requirePost(post);
+            Checks.requireContent(post);
             requireAdapters();
             return detached(locks.withLock(post.id(), () -> load(post.id()).chain(stored -> {
                 Checks.checkOwner(stored, account);
                 Checks.checkCarriable(stored, post);
-                return everywhere(stored, account, Operation.UPDATE, post, post,
+                // the publication time is fixed at the first publish (R19): adapters derive protocol ids from it
+                Post edited = withPublishedAt(post, stored.snapshot().publishedAt());
+                return everywhere(stored, account, Operation.UPDATE, edited, edited,
                         state -> state != null && state.status() == Status.PUBLISHED, States::afterUpdate);
             })));
         });
@@ -275,7 +279,9 @@ public class PublishEngine {
     }
 
     /**
-     * Calls {@code op} on every network where {@code has} holds; the others are {@code Skipped(NOT_PUBLISHED_HERE)}.
+     * Calls {@code op} on every network where {@code has} holds; the others are {@code Skipped(NOT_PUBLISHED_HERE)},
+     * except a network another run's publish holds a live lease on, which is {@code Failed(IN_PROGRESS)} (retryable)
+     * without calling its adapter (R20): that run's save would otherwise overwrite this call's result.
      * The stored snapshot becomes {@code newSnapshot}, or stays as it is (re-read on a conflict) when null.
      */
     private Uni<PublishResult> everywhere(StoredPost stored, String account, Operation op, Post post,
@@ -285,10 +291,14 @@ public class PublishEngine {
         networks.addAll(stored.networks().keySet());
         Map<Network, NetworkResult> results = new LinkedHashMap<>();
         Map<SocialAdapter, Function<String, AdapterRequest>> toCall = new LinkedHashMap<>();
+        Instant now = Instant.now();
         for (Network network : networks) {
             NetworkState state = stored.networks().get(network);
             SocialAdapter adapter = adapters.get(network);
-            if (!has.test(state)) {
+            if (States.liveLease(state, now, leaseTime)) {
+                results.put(network, new NetworkResult.Failed(network, FailureCode.IN_PROGRESS,
+                        States.PUBLISH_RUNNING_DETAIL, true, Map.of()));
+            } else if (!has.test(state)) {
                 results.put(network, new NetworkResult.Skipped(network, SkipReason.NOT_PUBLISHED_HERE,
                         "post " + stored.postId() + " is not published on " + network));
             } else if (adapter == null) {
@@ -388,6 +398,19 @@ public class PublishEngine {
     private Uni<StoredPost> load(String postId) {
         return store.find(postId).map(found -> found.orElseThrow(
                 () -> new SocialException("post " + postId + " is unknown; publish it first")));
+    }
+
+    /** {@code post} with another publication time (every other field as it is). */
+    private static Post withPublishedAt(Post post, Instant publishedAt) {
+        if (post.publishedAt().equals(publishedAt)) {
+            return post;
+        }
+        return Post.builder(post.id()).kind(post.kind()).title(post.title().orElse(null))
+                .summary(post.summary().orElse(null)).text(post.text().orElse(null)).html(post.html().orElse(null))
+                .url(post.url().orElse(null)).language(post.language().orElse(null)).tags(post.tags())
+                .visibility(post.visibility()).sensitive(post.sensitive())
+                .contentWarning(post.contentWarning().orElse(null)).publishedAt(publishedAt)
+                .networks(post.networks().orElse(null)).atprotoLabels(post.atprotoLabels()).build();
     }
 
     private static StoredPost withStates(StoredPost current, Post snapshot, Map<Network, NetworkResult> called,

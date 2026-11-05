@@ -9,6 +9,7 @@ import static org.sitenetsoft.quarkus.social.atproto.deployment.AtprotoApps.ANN;
 import static org.sitenetsoft.quarkus.social.test.SocialAssertions.assertFailed;
 import static org.sitenetsoft.quarkus.social.test.SocialAssertions.assertPublished;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -117,6 +118,37 @@ public class RecreateEditTest {
         assertEquals(created.toString(), updated.refs().get("post.uri"));
         JsonNode doc = FAKE.pds().records().get(AtUri.parse(published.refs().get("document.uri")));
         assertEquals(created.toString(), doc.path("bskyPostRef").path("uri").asText());
+    }
+
+    @Test
+    void retriedRecreateWithAFreshPostKeepsThePublicationTime() {
+        AtprotoApps.link(ANN, HANDLE);
+        Post post = AtprotoApps.article("recreate-3").build();
+        NetworkResult.Published published = assertPublished(social.publish(ANN, post), ATPROTO);
+        AtUri docUri = AtUri.parse(published.refs().get("document.uri"));
+        String docPublishedAt = FAKE.pds().records().get(docUri).path("publishedAt").asText();
+        String postCreatedAt = FAKE.pds().records().get(AtUri.parse(published.refs().get("post.uri")))
+                .path("createdAt").asText();
+
+        // the edit is rebuilt on every attempt, as an app would: its publishedAt is "now" each time
+        HookedPublications.NEXT.set(() -> {
+            FAKE.pds().expireTokens();
+            FAKE.as().tokenEndpointStatus(503);
+        });
+        assertFailed(social.update(ANN, AtprotoApps.article(post.id()).title("Edited title")
+                .publishedAt(Instant.now()).build()), ATPROTO, FailureCode.UNAVAILABLE);
+        List<AtUri> afterFailure = posts();
+        assertEquals(1, afterFailure.size(), afterFailure::toString);
+
+        FAKE.as().tokenEndpointStatus(200);
+        NetworkResult.Published updated = assertPublished(social.update(ANN, AtprotoApps.article(post.id())
+                .title("Edited title").publishedAt(Instant.now().plusSeconds(5)).build()), ATPROTO);
+        assertEquals(afterFailure, posts(), "exactly one replacement post");
+        assertEquals(afterFailure.get(0).toString(), updated.refs().get("post.uri"));
+        assertEquals(postCreatedAt, FAKE.pds().records().get(afterFailure.get(0)).path("createdAt").asText());
+        JsonNode doc = FAKE.pds().records().get(docUri);
+        assertEquals("Edited title", doc.path("title").asText());
+        assertEquals(docPublishedAt, doc.path("publishedAt").asText(), "the document keeps its publication time");
     }
 
     static List<AtUri> posts() {
