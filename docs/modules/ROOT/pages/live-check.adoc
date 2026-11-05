@@ -1,34 +1,163 @@
 = Live check
 
-A manual end-to-end check with real accounts: one `publish()` from an application reaches a Mastodon account and a
-Bluesky account, with a result per network. The automated tests cover the same flow against fakes; this check proves
-it against the real networks. It writes public posts: use test accounts.
+A manual end-to-end check with real accounts: one `POST /publish` on the sample application reaches a Mastodon account
+(as an ActivityPub post) and a Bluesky account (as a post with a link card and a Standard.site document), with a result
+per network. The automated tests cover the same flow against fakes; this check proves it against the real networks.
+It writes public posts and records: use test accounts and delete them afterwards (last step).
+
+The application is the repository's `integration-tests` module, run as a packaged JVM application on a public HTTPS
+hostname. Nothing runs in dev mode here: a real Mastodon only talks to public `https` servers, and a real Bluesky
+authorization server only sends the browser back to a public client when the application is a confidential client.
 
 == Prerequisites
 
-* JDK 21 and Maven; the sibling projects built and installed in the order given in the repository README.
-* An application with `quarkus-social`, `quarkus-activitypub` and `quarkus-atproto-oauth`, running in dev mode.
-* ActivityPub: a public HTTPS hostname that reaches the application (for example `ap-test.example.net`, through a
-  tunnel or a test server) with a local actor, and a Mastodon account that follows it.
-* Bluesky: `quarkus.atproto.oauth.mode=link`, the scope from xref:bluesky.adoc[], and a Bluesky account
-  (`alice.bsky.social`) linked to the application account through the link flow.
+* JDK 21 and Maven; the sibling projects built and installed in the order given in the repository README, then
+  `mvn -T 8 install -DskipTests` at the repository root.
+* A public HTTPS hostname that reaches the sample, for example `ap-test.example.net`, through a reverse proxy (Caddy,
+  nginx) or a tunnel (cloudflared, ngrok) to `localhost:8080`. The proxy must keep the request path at the root (in
+  particular `/.well-known/webfinger` and `/oauth-client-metadata.json`), pass `Host` through unchanged, not rewrite
+  request bodies and send `X-Forwarded-Proto`, `X-Forwarded-Host` and `X-Forwarded-For`.
+* A Mastodon test account (on any server that federates with public hosts) and a Bluesky test account
+  (`alice.bsky.social`) hosted on bsky.social or another PDS whose authorization server accepts confidential clients.
+* `openssl` and `curl`.
+
+== Why the sample needs more than dev mode
+
+[cols="2,3"]
+|===
+|Setting |Why
+
+|`quarkus.activitypub.base-url`
+|Actor ids, the inbox and WebFinger live under this origin. It must be the public `https` origin.
+
+|`quarkus.http.proxy.proxy-address-forwarding=true` plus `allow-x-forwarded=true` and `enable-forwarded-host=true`
+|`POST /publish`, `/update`, `/delete` accept only same-origin requests: `Sec-Fetch-Site: same-origin`, or an `Origin`
+equal to the request's own scheme, host and port. Behind a TLS proxy the application sees `http://localhost:8080`
+unless it trusts the forwarded headers, and the check answers 403 `changes must come from this site's own pages`. The
+AT Protocol login endpoint applies the same rule against `client-base-url`.
+
+|`QUARKUS_SECURITY_USERS_EMBEDDED_USERS_ANN`
+|The sample defines its user `ann` only in dev and test profiles. In production supply the password from the
+environment (the property `quarkus.security.users.embedded.users.ann`). `ann` is both the application user (basic
+auth) and the ActivityPub actor the sample registers at startup.
+
+|`quarkus.atproto.oauth.client-base-url`, `signing-key.location`, `session.encryption-key`
+|The localhost development client works only with a browser on the same machine (its redirect URI is
+`http://127.0.0.1:8080/atproto/oauth/callback`) and is refused in production. A public hostname needs the
+confidential client: the application serves its client metadata at
+`https://ap-test.example.net/oauth-client-metadata.json` and the authorization server fetches it from there, so the
+hostname must be reachable from the internet. Startup fails naming the property when one of the three is missing.
+|===
 
 == Steps
 
-. Start the application in dev mode and open the Dev UI card *Social*: both networks are listed as active and, for
-  Bluesky, the scope configured covers the scope needed.
-. Fill *Publish a test post* (account, a short text, `NOTE`, `PUBLIC`) and press *Publish*. Expect `published` for
-  both networks; the ActivityPub note says how many inboxes were queued.
-. Open the Bluesky link in the result and check the post. Check the Mastodon timeline of the follower: the post
-  arrives within a minute. In the card, the recent post shows the ActivityPub delivery counts reaching `pending 0`.
-. Publish an `ARTICLE` (first line is its title). Check the Mastodon note (title, teaser, link), the Bluesky teaser
-  with its link card, and the `site.standard.document` (read it back with
-  `com.atproto.repo.getRecord`, collection `site.standard.document`).
-. From your application call `social.update(...)` with changed text for the article: the document changes, the
-  Bluesky post is kept ("Bluesky post not edited"), the Mastodon note shows as edited.
-. Reply to the Mastodon note from the follower's account: your `SocialReply` observer fires with audience `PUBLIC`.
-. Publish a `FOLLOWERS` post: Mastodon gets it for followers only; Bluesky is `Skipped(VISIBILITY_NOT_SUPPORTED)`.
-. Call `social.delete(...)`: the post disappears from both networks.
+. *Create the AT Protocol client key and the session key* (outside the repository):
++
+[source,shell]
+----
+openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out atproto-client-key.pem
+export SESSION_KEY=$(openssl rand -hex 32)
+export ANN_PASSWORD=$(openssl rand -hex 16)
+----
+
+. *Expose the sample* at `https://ap-test.example.net` (reverse proxy or tunnel to `localhost:8080`), as in the prerequisites.
+
+. *Start the sample* (packaged build; production profile, so safe-fetch stays strict):
++
+[source,shell]
+----
+QUARKUS_SECURITY_USERS_EMBEDDED_USERS_ANN="$ANN_PASSWORD" \
+java -Dquarkus.activitypub.base-url=https://ap-test.example.net \
+     -Dquarkus.atproto.oauth.client-base-url=https://ap-test.example.net \
+     -Dquarkus.atproto.oauth.signing-key.location=$PWD/atproto-client-key.pem \
+     -Dquarkus.atproto.oauth.session.encryption-key="$SESSION_KEY" \
+     -Dquarkus.http.proxy.proxy-address-forwarding=true \
+     -Dquarkus.http.proxy.allow-x-forwarded=true \
+     -Dquarkus.http.proxy.enable-forwarded-host=true \
+     -jar integration-tests/target/quarkus-app/quarkus-run.jar
+----
++
+The sample keeps everything in an in-memory H2 database, so a restart regenerates the actor's keys and forgets
+followers, the Bluesky link and posts: do not restart the application in the middle of the check.
+
+. *Check discovery and the client metadata from outside*:
++
+[source,shell]
+----
+curl -s 'https://ap-test.example.net/.well-known/webfinger?resource=acct:ann@ap-test.example.net'
+curl -s -H 'Accept: application/activity+json' https://ap-test.example.net/users/ann
+curl -s https://ap-test.example.net/oauth-client-metadata.json
+----
++
+The first returns a JRD with a `self` link to `https://ap-test.example.net/users/ann`; the second the actor with its
+`publicKey`; the third a document whose `client_id` is its own URL.
+
+. *Check the same-origin rule behind the proxy*: sending the right `Origin` must pass, a foreign one must not:
++
+[source,shell]
+----
+curl -s -u ann:"$ANN_PASSWORD" -X POST -H 'Origin: https://elsewhere.example' https://ap-test.example.net/delete -d id=x
+curl -s -u ann:"$ANN_PASSWORD" -X POST -H 'Origin: https://ap-test.example.net' https://ap-test.example.net/delete -d id=x
+----
++
+The first answers 403, the second answers an error about the unknown post `x` (4xx but not 403). A 403 on the second
+means the forwarded headers do not reach the application: fix the proxy or the `quarkus.http.proxy.*` settings first.
+
+. *Follow the sample actor from Mastodon*: search `@ann@ap-test.example.net` in the Mastodon test account and press
+  *Follow*. The sample's default policy accepts and the profile shows "Following" (not "Requested").
+
+. *Link the Bluesky test account*: open `https://ap-test.example.net/` in a browser and sign in with user `ann` and
+  `$ANN_PASSWORD` (basic auth). Type the Bluesky handle (`alice.bsky.social`) in *Link Bluesky account* and press the
+  button. You are sent to the authorization server (bsky.social): sign in there and approve the requested access
+  (posts and Standard.site documents: create, update, delete). You come back to the sample's page. Use the same browser
+  for the whole link flow.
+
+. *Confirm* the networks and capabilities:
++
+[source,shell]
+----
+curl -s -u ann:"$ANN_PASSWORD" https://ap-test.example.net/capabilities
+----
++
+Both `activitypub` and `atproto` are listed.
+
+. *Publish once*: in the sample's page fill *Publish* with `NOTE`, `PUBLIC`, a short text and a post id such as
+  `live-check-1`, and press *Publish* (this is `POST /publish`; an `ARTICLE` with a title and URL
+  `https://blog.example/live-check` works as well and produces the link card and the document). The response is JSON
+  with `Published` for both networks; the ActivityPub note says how many inboxes were queued, the Bluesky result has a
+  URL.
++
+Equivalent command line (the `Origin` header stands in for the browser's same-origin proof):
++
+[source,shell]
+----
+curl -s -u ann:"$ANN_PASSWORD" -X POST -H 'Origin: https://ap-test.example.net' https://ap-test.example.net/publish \
+     -d id=live-check-1 -d kind=ARTICLE -d visibility=PUBLIC -d title='Live check' \
+     -d summary='A short post from the quarkus-social sample' -d url=https://blog.example/live-check
+----
+
+. *Observe on Mastodon*: the post arrives in the follower's home timeline within a minute (the delivery job polls
+  every `quarkus.activitypub.delivery.poll-interval`).
+
+. *Observe on Bluesky*: open the URL in the `atproto` result. For an `ARTICLE` it is a short post with a link card
+  pointing at the article URL. The Standard.site document is readable from the PDS (the DID and `rkey` are in the
+  result's `refs`):
++
+[source,shell]
+----
+curl -s 'https://<pds>/xrpc/com.atproto.repo.getRecord?repo=<did>&collection=site.standard.document&rkey=<rkey>'
+----
++
+The answer is `{"uri": ..., "cid": ..., "value": {"$type": "site.standard.document", "site": "https://...",
+"title": "Live check", ...}}`.
+
+. *Optional*: reply to the Mastodon note from the follower's account; `GET /interactions` (basic auth) lists a reply
+  with audience `PUBLIC`.
+
+. *Delete the test records*: press *Delete* with the post id (or `POST /delete id=live-check-1` as above). Check the
+  Mastodon note and the Bluesky post and document are gone (`getRecord` answers `RecordNotFound`). Then unlink the
+  application from the Bluesky account in your Bluesky settings (revoke the session), stop the application and remove
+  the key file.
 
 == Troubleshooting
 
@@ -36,18 +165,33 @@ it against the real networks. It writes public posts: use test accounts.
 |===
 |Symptom |What to do
 
-|Bluesky `Skipped(NOT_LINKED)` with "mode must be link"
-|Set `quarkus.atproto.oauth.mode=link` and link the account.
+|403 `changes must come from this site's own pages`
+|The application does not see the public scheme and host: set `quarkus.http.proxy.proxy-address-forwarding=true`,
+`allow-x-forwarded=true`, `enable-forwarded-host=true` and make the proxy send `X-Forwarded-Proto` and
+`X-Forwarded-Host`.
+
+|Startup fails naming `quarkus.atproto.oauth.client-base-url`, `signing-key.location` or `session.encryption-key`
+|Production needs the confidential client: set all three (step 3).
+
+|The authorization server rejects the client (`invalid_client_metadata`, `invalid_client`)
+|It could not fetch `https://ap-test.example.net/oauth-client-metadata.json` or its `jwks_uri`: open them from outside
+the host; the hostname must be public and valid TLS.
+
+|Bluesky `Skipped(NOT_LINKED)`
+|`ann` has not linked a Bluesky account in this process (the link is in memory): repeat the link step, signed in as
+`ann` from the same browser.
 
 |Bluesky `Failed(SCOPE_MISSING)`
-|Add the scope shown by the card (or the startup warning) to `quarkus.atproto.oauth.scope` and link again.
+|The granted scope does not cover the write: link again after checking `quarkus.atproto.oauth.scope` in the sample's
+`application.properties`.
 
 |Bluesky `Failed(SESSION_EXPIRED)`
-|Sessions end after `quarkus.atproto.oauth.session.max-age` (14 days); the user links again.
+|Link again.
 
 |ActivityPub `Published` but nothing arrives
-|Delivery is asynchronous: check the delivery counts in the card; failed deliveries show the remote server's answer
-in the `quarkus-activitypub` logs.
+|Delivery is asynchronous. Check the follow was accepted and the `quarkus-activitypub` logs for the remote server's
+answer; see the Mastodon interop notes in `quarkus-activitypub` (`interop.adoc`) for `401` on the inbox (clock, digest,
+`Host`), WebFinger `404` and authorized-fetch.
 |===
 
 == Record of runs
@@ -56,5 +200,5 @@ in the `quarkus-activitypub` logs.
 |===
 |Date |Networks |Result
 
-|pending |a Mastodon server and a bsky.social-hosted PDS |Not run yet.
+|_not run yet_ |a Mastodon server and a bsky.social-hosted PDS |_not run yet_
 |===

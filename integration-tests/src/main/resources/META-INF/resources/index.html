@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>quarkus-social sample</title>
+</head>
+<body>
+<h1>quarkus-social sample</h1>
+<p>Signed-in actions for the manual live check (see <code>live-check.adoc</code>). Your browser asks for the sample
+user's credentials first.</p>
+
+<h2>Link a Bluesky account</h2>
+<form method="post" action="/atproto/login">
+  <input type="hidden" name="redirect" value="/">
+  <input name="handle" placeholder="alice.bsky.social" required>
+  <button>Link Bluesky account</button>
+</form>
+
+<h2>Publish</h2>
+<form method="post" action="/publish">
+  <p><select name="kind"><option>NOTE</option><option>ARTICLE</option></select>
+     <select name="visibility"><option>PUBLIC</option><option>UNLISTED</option><option>FOLLOWERS</option></select></p>
+  <p><input name="title" placeholder="title (ARTICLE)"> <input name="url" placeholder="https://blog.example/post (ARTICLE)"></p>
+  <p><input name="id" placeholder="post id (optional, stable)"></p>
+  <p><textarea name="text" rows="3" cols="50" placeholder="text"></textarea></p>
+  <button>Publish</button>
+</form>
+
+<h2>Delete</h2>
+<form method="post" action="/delete">
+  <input name="id" placeholder="post id" required> <button>Delete</button>
+</form>
+</body>
+</html>
