@@ -30,12 +30,17 @@ import app.bsky.richtext.Facet;
  * <li>ARTICLE: a teaser (title, a blank line, the summary or the first paragraph) trimmed with "…" to fit, and an
  * {@code app.bsky.embed.external} link card to the canonical URL.</li>
  * </ul>
- * Link and hashtag facets, {@code langs} from the language, {@code createdAt} from {@code publishedAt}, self-labels
- * from the post's {@code atprotoLabels} or the {@code content-warning} setting.
+ * Link and hashtag facets, {@code tags} from the post's tags (see {@link #tags}), {@code langs} from the language,
+ * {@code createdAt} from {@code publishedAt}, self-labels from the post's {@code atprotoLabels} or the
+ * {@code content-warning} setting.
  */
 public final class BlueskyPosts {
 
     static final int MAX_GRAPHEMES = 300;
+    /** The Lexicon's limits on {@code tags}: at most 8, each at most 64 graphemes and 640 UTF-8 bytes. */
+    static final int MAX_TAGS = 8;
+    private static final int MAX_TAG_GRAPHEMES = 64;
+    private static final int MAX_TAG_BYTES = 640;
     private static final String ELLIPSIS = "…";
     private static final Pattern PARAGRAPH_BREAK = Pattern.compile("\\n[ \\t]*\\n\\s*");
 
@@ -86,8 +91,19 @@ public final class BlueskyPosts {
         List<String> labels = selfLabels(post, cw);
         return new app.bsky.feed.Post(text, null, facets.isEmpty() ? null : facets, null, embed,
                 post.language().filter(Language::isValid).map(l -> List.of(Language.parse(l))).orElse(null),
-                labels.isEmpty() ? null : new app.bsky.feed.Post.Labels.SelfLabels(selfLabels(labels)), null,
+                labels.isEmpty() ? null : new app.bsky.feed.Post.Labels.SelfLabels(selfLabels(labels)), tags(post),
                 Datetime.of(post.publishedAt()));
+    }
+
+    /**
+     * The record's {@code tags}: the post's first {@value #MAX_TAGS} tags that fit the Lexicon's per-tag limits (a
+     * longer tag is left out, never cut), or null when none.
+     */
+    static List<String> tags(Post post) {
+        List<String> tags = post.tags().stream()
+                .filter(t -> Graphemes.count(t) <= MAX_TAG_GRAPHEMES && Graphemes.utf8Length(t) <= MAX_TAG_BYTES)
+                .limit(MAX_TAGS).toList();
+        return tags.isEmpty() ? null : tags;
     }
 
     /**

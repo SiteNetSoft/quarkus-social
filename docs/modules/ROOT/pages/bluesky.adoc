@@ -51,6 +51,9 @@ document.
 |===
 
 A `NOTE` over 300 graphemes is `Failed(TEXT_TOO_LONG)`, never silently truncated; check `capabilities()` first.
+The text of an HTML-only post keeps each link's address as `text (address)` when the link text doesn't show it, so the
+address gets a link facet. The post's `tags` go in the record's `tags` (the first 8 that fit the Lexicon's 64
+graphemes per tag; a longer tag is left out, not cut).
 
 Only `PUBLIC` posts are published: `UNLISTED` and `FOLLOWERS` are `Skipped(VISIBILITY_NOT_SUPPORTED)`, because
 Bluesky has neither and posting publicly would widen the audience.

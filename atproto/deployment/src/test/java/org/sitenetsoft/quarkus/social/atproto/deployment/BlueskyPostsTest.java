@@ -141,6 +141,32 @@ class BlueskyPostsTest {
         assertEquals(List.of("nudity"), own.value().values().stream().map(l -> l.val()).toList());
     }
 
+    @Test
+    void tagsFromThePostWithinTheLexiconLimits() {
+        assertNull(BlueskyPosts.build(request(Post.builder("t0").text("x").build()), SKIP).tags());
+        List<String> ten = java.util.stream.IntStream.range(0, 10).mapToObj(i -> "tag" + i).toList();
+        String tooLong = "é".repeat(65); // over 64 graphemes: left out, not cut
+        List<String> tags = new java.util.ArrayList<>(List.of("quarkus", tooLong, "été"));
+        tags.addAll(ten);
+        app.bsky.feed.Post post = BlueskyPosts.build(request(Post.builder("t1").text("x").tags(tags).build()), SKIP);
+        assertEquals(List.of("quarkus", "été", "tag0", "tag1", "tag2", "tag3", "tag4", "tag5"), post.tags());
+        // exactly 64 graphemes fits; 64 graphemes over 640 UTF-8 bytes (11 bytes each) does not
+        String edge = "é".repeat(64);
+        String heavy = "👩‍💻".repeat(64);
+        assertEquals(List.of(edge), BlueskyPosts.build(request(Post.builder("t2").text("x")
+                .tags(List.of(heavy, edge)).build()), SKIP).tags());
+    }
+
+    @Test
+    void htmlOnlyNoteKeepsItsLinks() {
+        app.bsky.feed.Post post = BlueskyPosts.build(request(Post.builder("h1")
+                .html("<p>Read <a href=\"https://blog.example/posts/hello\">my post</a>.</p>").build()), SKIP);
+        assertEquals("Read my post (https://blog.example/posts/hello).", post.text());
+        assertEquals(1, post.facets().size());
+        assertEquals("https://blog.example/posts/hello", slice(post.text(), post.facets().get(0)));
+        assertInstanceOf(Facet.Features.Link.class, post.facets().get(0).features().get(0));
+    }
+
     static Post.Builder article(String id) {
         return Post.builder(id).kind(Kind.ARTICLE).title("Hello world").url(URL).html("<p>Body text.</p>")
                 .publishedAt(PUBLISHED);

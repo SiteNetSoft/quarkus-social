@@ -99,9 +99,21 @@ public class AtprotoSocialAdapter implements SocialAdapter {
 
     @Override
     public Capabilities capabilities() {
+        return capabilities(config);
+    }
+
+    /**
+     * What the settings allow: edits unless only Bluesky posts are written and they are kept as they are
+     * ({@code output=post}, {@code edit-post=keep}); content warnings when they become a self-label
+     * ({@code content-warning=label:<value>}).
+     */
+    public static Capabilities capabilities(AtprotoSocialConfig config) {
         Set<Kind> kinds = config.output() == Output.DOCUMENT ? EnumSet.of(Kind.ARTICLE)
                 : EnumSet.of(Kind.NOTE, Kind.ARTICLE);
-        return new Capabilities(EnumSet.of(Visibility.PUBLIC), kinds, true, true, false,
+        boolean edits = !(config.output() == Output.POST && config.editPost() == AtprotoSocialConfig.EditPost.KEEP);
+        boolean contentWarnings = ContentWarningSetting.parse(config.contentWarning()).mode()
+                == ContentWarningSetting.Mode.LABEL;
+        return new Capabilities(EnumSet.of(Visibility.PUBLIC), kinds, edits, true, contentWarnings,
                 OptionalInt.of(BlueskyPosts.MAX_GRAPHEMES), false, false);
     }
 
