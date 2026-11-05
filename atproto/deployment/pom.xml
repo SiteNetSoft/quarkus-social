@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.sitenetsoft.quarkus</groupId>
+    <artifactId>quarkus-social-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+  <artifactId>quarkus-social-atproto-deployment</artifactId>
+  <name>Quarkus Social AT Protocol - Deployment</name>
+  <dependencies>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-atproto</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-deployment</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-atproto-oauth-deployment</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-arc-deployment</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-junit-internal</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>io.rest-assured</groupId><artifactId>rest-assured</artifactId><scope>test</scope></dependency>
+    <!-- link mode: basic auth with embedded users stands in for the application's own sign-in -->
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-elytron-security-properties-file-deployment</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-atproto-test</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-test</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin><artifactId>maven-compiler-plugin</artifactId></plugin>
+      <plugin><artifactId>maven-surefire-plugin</artifactId></plugin>
+    </plugins>
+  </build>
+</project>

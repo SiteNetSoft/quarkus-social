@@ -32,6 +32,7 @@
               <!-- each adapter comes in when the app has its protocol extension (the adapter's dependency condition) -->
               <conditionalDependencies>
                 <extension>org.sitenetsoft.quarkus:quarkus-social-activitypub:${project.version}</extension>
+                <extension>org.sitenetsoft.quarkus:quarkus-social-atproto:${project.version}</extension>
               </conditionalDependencies>
             </configuration>
           </execution>

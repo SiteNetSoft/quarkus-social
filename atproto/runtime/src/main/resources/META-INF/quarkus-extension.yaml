@@ -1,0 +1,13 @@
+name: "Social AT Protocol"
+artifact: ${project.groupId}:${project.artifactId}:${project.version}
+description: "Publishes quarkus-social posts to Bluesky and Standard.site through quarkus-atproto"
+metadata:
+  keywords:
+    - "social"
+    - "atproto"
+    - "bluesky"
+    - "standard-site"
+  guide: "https://github.com/SiteNetSoft/quarkus-social"
+  categories:
+    - "web"
+  status: "experimental"

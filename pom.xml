@@ -18,6 +18,8 @@
     <module>test</module>
     <module>activitypub/runtime</module>
     <module>activitypub/deployment</module>
+    <module>atproto/runtime</module>
+    <module>atproto/deployment</module>
     <module>bom</module>
   </modules>
   <properties>

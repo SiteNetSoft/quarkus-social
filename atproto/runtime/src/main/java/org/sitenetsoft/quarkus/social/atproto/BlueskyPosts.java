@@ -1,0 +1,120 @@
+package org.sitenetsoft.quarkus.social.atproto;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Pattern;
+
+import org.sitenetsoft.atproto.syntax.Datetime;
+import org.sitenetsoft.atproto.syntax.Language;
+import org.sitenetsoft.quarkus.atproto.lexicon.Graphemes;
+import org.sitenetsoft.quarkus.atproto.lexicons.bsky.RichText;
+import org.sitenetsoft.quarkus.social.FailureCode;
+import org.sitenetsoft.quarkus.social.Kind;
+import org.sitenetsoft.quarkus.social.Network;
+import org.sitenetsoft.quarkus.social.NetworkResult;
+import org.sitenetsoft.quarkus.social.Post;
+import org.sitenetsoft.quarkus.social.spi.AdapterRequest;
+
+import com.atproto.label.Defs;
+
+import app.bsky.embed.External;
+
+/**
+ * The {@code app.bsky.feed.post} of a post.
+ * <ul>
+ * <li>NOTE: the post's plain text, refused ({@code TEXT_TOO_LONG}) over {@value #MAX_GRAPHEMES} graphemes, never
+ * truncated;</li>
+ * <li>ARTICLE: a teaser (title, a blank line, the summary or the first paragraph) trimmed with "…" to fit, and an
+ * {@code app.bsky.embed.external} link card to the canonical URL.</li>
+ * </ul>
+ * Link and hashtag facets, {@code langs} from the language, {@code createdAt} from {@code publishedAt}, self-labels
+ * from the post's {@code atprotoLabels} or the {@code content-warning} setting.
+ */
+public final class BlueskyPosts {
+
+    static final int MAX_GRAPHEMES = 300;
+    private static final Pattern PARAGRAPH_BREAK = Pattern.compile("\\n[ \\t]*\\n\\s*");
+
+    private BlueskyPosts() {
+    }
+
+    /** A post that can't go to Bluesky; {@link #result()} is what the adapter answers. */
+    public static final class Refused extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private final transient NetworkResult result;
+
+        Refused(NetworkResult result) {
+            super(result.toString(), null, false, false);
+            this.result = result;
+        }
+
+        public NetworkResult result() {
+            return result;
+        }
+    }
+
+    /** @throws Refused ({@code TEXT_TOO_LONG}) for a NOTE over 300 graphemes */
+    public static app.bsky.feed.Post build(AdapterRequest req, AtprotoSocialConfig cfg) {
+        Post post = req.post();
+        String text;
+        app.bsky.feed.Post.Embed embed = null;
+        if (post.kind() == Kind.ARTICLE) {
+            String title = post.title().orElseThrow();
+            Optional<String> summary = post.summary().filter(s -> !s.isBlank());
+            String lead = summary.or(() -> firstParagraph(req.content().text())).orElse("");
+            text = RichText.truncate(lead.isEmpty() ? title : title + "\n\n" + lead, MAX_GRAPHEMES, "…");
+            embed = new app.bsky.feed.Post.Embed.External(new External(new External.ExternalDef(post.url().orElseThrow(),
+                    title, summary.orElse(""), null, null)));
+        } else {
+            text = req.content().text();
+            int graphemes = Graphemes.count(text);
+            if (graphemes > MAX_GRAPHEMES) {
+                throw new Refused(new NetworkResult.Failed(Network.ATPROTO, FailureCode.TEXT_TOO_LONG,
+                        "the text has " + graphemes + " graphemes; a Bluesky post takes at most " + MAX_GRAPHEMES,
+                        false, Map.of()));
+            }
+        }
+        List<String> labels = selfLabels(post, ContentWarningSetting.parse(cfg.contentWarning()));
+        return new app.bsky.feed.Post(text, null, nullIfEmpty(RichText.of(text).facets()), null, embed,
+                post.language().filter(Language::isValid).map(l -> List.of(Language.parse(l))).orElse(null),
+                labels.isEmpty() ? null : new app.bsky.feed.Post.Labels.SelfLabels(selfLabels(labels)), null,
+                Datetime.of(post.publishedAt()));
+    }
+
+    /**
+     * The self-label values of a post: its own {@code atprotoLabels} when it has some, else the
+     * {@code label:<value>} setting's value when the post has a content warning or is sensitive, else none.
+     */
+    static List<String> selfLabels(Post post, ContentWarningSetting setting) {
+        if (!post.atprotoLabels().isEmpty()) {
+            return post.atprotoLabels();
+        }
+        if (warned(post) && setting.mode() == ContentWarningSetting.Mode.LABEL) {
+            return List.of(setting.label().orElseThrow());
+        }
+        return List.of();
+    }
+
+    static Defs.SelfLabels selfLabels(List<String> values) {
+        return new Defs.SelfLabels(values.stream().map(Defs.SelfLabel::new).toList());
+    }
+
+    /** Whether the post carries a content warning or is marked sensitive. */
+    static boolean warned(Post post) {
+        return post.sensitive() || post.contentWarning().filter(w -> !w.isBlank()).isPresent();
+    }
+
+    private static Optional<String> firstParagraph(String text) {
+        for (String paragraph : PARAGRAPH_BREAK.split(text.strip())) {
+            if (!paragraph.isBlank()) {
+                return Optional.of(paragraph.strip());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static <T> List<T> nullIfEmpty(List<T> list) {
+        return list.isEmpty() ? null : list;
+    }
+}
