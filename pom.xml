@@ -15,6 +15,7 @@
   <modules>
     <module>runtime</module>
     <module>deployment</module>
+    <module>test</module>
     <module>bom</module>
   </modules>
   <properties>

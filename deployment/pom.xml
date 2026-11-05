@@ -13,6 +13,10 @@
     <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-core-deployment</artifactId></dependency>
     <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-arc-deployment</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-mutiny-deployment</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-vertx-deployment</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-junit-internal</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-test</artifactId><version>${project.version}</version><scope>test</scope></dependency>
   </dependencies>
   <build>
     <plugins>
