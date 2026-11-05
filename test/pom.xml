@@ -13,6 +13,7 @@
   <dependencies>
     <!-- the SPI it implements; always on the consumer's class path already -->
     <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social</artifactId><version>${project.version}</version><scope>provided</scope></dependency>
+    <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>provided</scope></dependency>
   </dependencies>
   <build>
     <plugins>

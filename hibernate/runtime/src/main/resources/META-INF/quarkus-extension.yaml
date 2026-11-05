@@ -1,0 +1,11 @@
+name: "Social Hibernate ORM"
+artifact: ${project.groupId}:${project.artifactId}:${project.version}
+description: "Hibernate ORM post store for quarkus-social"
+metadata:
+  keywords:
+    - "social"
+    - "hibernate"
+  guide: "https://github.com/SiteNetSoft/quarkus-social"
+  categories:
+    - "web"
+  status: "experimental"

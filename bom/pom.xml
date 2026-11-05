@@ -19,6 +19,8 @@
       <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-activitypub-deployment</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-atproto</artifactId><version>${project.version}</version></dependency>
       <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-atproto-deployment</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-hibernate</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-hibernate-deployment</artifactId><version>${project.version}</version></dependency>
     </dependencies>
   </dependencyManagement>
 </project>

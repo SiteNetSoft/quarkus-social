@@ -20,6 +20,8 @@
     <module>activitypub/deployment</module>
     <module>atproto/runtime</module>
     <module>atproto/deployment</module>
+    <module>hibernate/runtime</module>
+    <module>hibernate/deployment</module>
     <module>bom</module>
   </modules>
   <properties>
