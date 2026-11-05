@@ -178,8 +178,10 @@ public class PublishEngine {
         StoredPost leased = copy(stored, stored.snapshot(), states);
         return store.replace(leased, stored.version()).chain(replaced -> {
             if (replaced) {
+                // a repeat publish retries the stored post (its publication time, its content): adapters derive
+                // protocol ids from it, and content changes go through update
                 return callAndSave(leased.withVersion(stored.version() + 1), new Plan(answered, toCall), account,
-                        post, targets);
+                        stored.snapshot(), targets);
             }
             if (attempt >= PostStoreAccess.MAX_ATTEMPTS) {
                 return Uni.createFrom().failure(new SocialException("post " + post.id()
@@ -293,8 +295,9 @@ public class PublishEngine {
                 results.put(network, new NetworkResult.Failed(network, FailureCode.UNAVAILABLE,
                         "no active adapter for network " + network, true, state.refs()));
             } else {
+                Optional<Post> before = op == Operation.UPDATE ? Optional.of(stored.snapshot()) : Optional.empty();
                 toCall.put(adapter, identity -> new AdapterRequest(account, identity, post, content,
-                        Optional.of(state)));
+                        Optional.of(state), before));
             }
         }
         return calls.all(toCall, account, op).chain(called -> {

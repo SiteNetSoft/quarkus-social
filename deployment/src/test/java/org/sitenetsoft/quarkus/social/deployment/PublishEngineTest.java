@@ -43,6 +43,7 @@ import org.sitenetsoft.quarkus.social.SkipReason;
 import org.sitenetsoft.quarkus.social.Social;
 import org.sitenetsoft.quarkus.social.SocialException;
 import org.sitenetsoft.quarkus.social.engine.PublishEngine;
+import org.sitenetsoft.quarkus.social.spi.AdapterRequest;
 import org.sitenetsoft.quarkus.social.store.DeliveryProgress;
 import org.sitenetsoft.quarkus.social.store.NetworkState;
 import org.sitenetsoft.quarkus.social.store.StoredPost;
@@ -232,6 +233,35 @@ public class PublishEngineTest {
         assertEquals(firstB.refs(), againB.refs());
         assertEquals(firstB.url(), againB.url());
         assertEquals(firstB.note(), againB.note());
+    }
+
+    @Test
+    void repeatPublishRetriesTheStoredPost() {
+        String id = newId();
+        java.time.Instant first = java.time.Instant.parse("2026-11-01T08:00:00Z");
+        a.failNext(FailureCode.UNAVAILABLE, true);
+        social.publish("alice", Post.builder(id).text("Original").publishedAt(first).build());
+
+        // the caller builds the post again: a new publication time (Post.Builder defaults to now) and new text
+        social.publish("alice", Post.builder(id).text("Changed").build());
+
+        assertEquals(2, a.requests().size());
+        AdapterRequest retry = a.requests().get(1).request();
+        assertEquals(first, retry.post().publishedAt());
+        assertEquals(java.util.Optional.of("Original"), retry.post().text());
+        assertEquals("Original", retry.content().text());
+    }
+
+    @Test
+    void updateSeesTheStoredPost() {
+        String id = newId();
+        social.publish("alice", Post.builder(id).text("Original").build());
+        social.update("alice", Post.builder(id).text("Edited").build());
+        AdapterRequest update = a.requests().get(1).request();
+        assertEquals(Operation.UPDATE, a.requests().get(1).operation());
+        assertEquals(java.util.Optional.of("Edited"), update.post().text());
+        assertEquals(java.util.Optional.of("Original"), update.stored().orElseThrow().text());
+        assertTrue(a.requests().get(0).request().stored().isEmpty());
     }
 
     @Test

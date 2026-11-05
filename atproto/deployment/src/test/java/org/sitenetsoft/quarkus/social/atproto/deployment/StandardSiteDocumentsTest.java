@@ -13,6 +13,7 @@ import org.sitenetsoft.atproto.syntax.AtUri;
 import org.sitenetsoft.atproto.syntax.Cid;
 import org.sitenetsoft.quarkus.social.Kind;
 import org.sitenetsoft.quarkus.social.Post;
+import org.sitenetsoft.quarkus.social.atproto.ContentWarningSetting;
 import org.sitenetsoft.quarkus.social.atproto.DefaultStandardSitePublications;
 import org.sitenetsoft.quarkus.social.atproto.StandardSiteDocuments;
 import org.sitenetsoft.quarkus.social.atproto.StandardSitePublications;
@@ -26,6 +27,7 @@ import site.standard.Document;
 class StandardSiteDocumentsTest {
 
     static final Instant PUBLISHED = Instant.parse("2026-11-04T10:15:30Z");
+    static final ContentWarningSetting SKIP = ContentWarningSetting.parse("skip");
     static final StandardSitePublications DEFAULT = new DefaultStandardSitePublications();
 
     @Test
@@ -35,7 +37,7 @@ class StandardSiteDocumentsTest {
         assertEquals(Optional.of(URI.create("https://blog.example:8443")),
                 DEFAULT.site("ann", article("https://blog.example:8443/a").build()));
 
-        Document doc = StandardSiteDocuments.build(request(post), TestConfig.defaults(),
+        Document doc = StandardSiteDocuments.build(request(post), SKIP,
                 StandardSiteDocuments.site(DEFAULT, request(post)), Optional.empty(), Optional.empty());
         assertEquals(URI.create("https://blog.example"), doc.site());
         assertEquals("/2026/hello", doc.path());
@@ -58,7 +60,7 @@ class StandardSiteDocumentsTest {
         // an app that has no publication for this post: the default
         assertEquals(URI.create("https://blog.example"),
                 StandardSiteDocuments.site((account, post) -> Optional.empty(), req));
-        Document doc = StandardSiteDocuments.build(req, TestConfig.defaults(), StandardSiteDocuments.site(app, req),
+        Document doc = StandardSiteDocuments.build(req, SKIP, StandardSiteDocuments.site(app, req),
                 Optional.empty(), Optional.of(PUBLISHED.plusSeconds(60)));
         assertEquals(publication, doc.site());
         assertEquals("/hello", doc.path());
@@ -71,7 +73,7 @@ class StandardSiteDocumentsTest {
                 AtUri.parse("at://did:plc:aaaaaaaaaaaaaaaaaaaaaaaa/app.bsky.feed.post/3m4abcdefgh22"),
                 Cid.parse("bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm"));
         AdapterRequest req = request(article("https://blog.example/hello").build());
-        Document doc = StandardSiteDocuments.build(req, TestConfig.defaults(), URI.create("https://blog.example"),
+        Document doc = StandardSiteDocuments.build(req, SKIP, URI.create("https://blog.example"),
                 Optional.of(ref), Optional.empty());
         assertEquals(ref, doc.bskyPostRef());
     }

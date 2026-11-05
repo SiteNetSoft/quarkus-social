@@ -20,7 +20,9 @@ public interface Social {
 
     /**
      * Publishes to every active network ({@link Post#networks()} narrows it). Called again with the same post id it
-     * tries only the networks where the post isn't published yet; it throws when every one already has it.
+     * retries the <b>stored</b> post (as first published: content, publication time) on the networks where it isn't
+     * published yet, ignoring the content of {@code post}; content changes go through {@link #update}. It throws when
+     * every network already has the post.
      */
     PublishResult publish(String account, Post post);
 

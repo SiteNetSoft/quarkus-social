@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
@@ -75,9 +76,16 @@ public class AtprotoSocialAdapter implements SocialAdapter {
     /** Post ids whose publish is running in this process (an engine timeout does not stop the blocking call). */
     private final Set<String> publishing = ConcurrentHashMap.newKeySet();
 
-    /** Fails startup on an invalid content-warning setting; logs an error in {@code login} mode. */
+    private ContentWarningSetting cw;
+
+    /** Fails startup on an invalid content-warning setting. */
+    @PostConstruct
+    void init() {
+        cw = ContentWarningSetting.parse(config.contentWarning());
+    }
+
+    /** Creates the adapter at startup (an invalid setting fails it); logs an error in {@code login} mode. */
     void checkSettings(@Observes StartupEvent event) {
-        ContentWarningSetting.parse(config.contentWarning());
         if (config.enabled() && oauth.mode() != OAuthConfig.Mode.LINK) {
             LOG.error("quarkus-social can't publish to Bluesky: " + LINK_MODE_REQUIRED + " (login mode has no "
                     + "application accounts to link to); every post is Skipped(NOT_LINKED) there");
@@ -135,15 +143,14 @@ public class AtprotoSocialAdapter implements SocialAdapter {
 
     @Override
     public Uni<NetworkResult> publish(AdapterRequest req) {
-        return call(req, refs -> {
-            Optional<NetworkResult> refused = refusal(req, false);
-            return refused.isPresent() ? refused.get() : publishOnce(req, refs);
-        });
+        return call(req, refs -> Refusals.publish(req, config.output(), cw)
+                .orElseGet(() -> publishOnce(req, refs)));
     }
 
     @Override
     public Uni<NetworkResult> update(AdapterRequest req) {
-        return call(req, refs -> refusal(req, true).orElseGet(() -> writes.update(req, refs)));
+        return call(req, refs -> Refusals.update(req, config.editPost(), cw)
+                .orElseGet(() -> writes.update(req, refs)));
     }
 
     @Override
@@ -167,36 +174,6 @@ public class AtprotoSocialAdapter implements SocialAdapter {
         } finally {
             publishing.remove(postId);
         }
-    }
-
-    /**
-     * What Bluesky can't carry: a non-public post, a NOTE for a document-only output, a content warning with
-     * {@code content-warning=skip} (unless the post names its own self-labels). On an edit the post is already
-     * there, so a warning added now is a failure that leaves the Bluesky copy unchanged.
-     */
-    private Optional<NetworkResult> refusal(AdapterRequest req, boolean edit) {
-        var post = req.post();
-        if (!edit && post.visibility() != Visibility.PUBLIC) {
-            return Optional.of(new NetworkResult.Skipped(NETWORK, SkipReason.VISIBILITY_NOT_SUPPORTED,
-                    "Bluesky posts are public; this one is " + post.visibility()));
-        }
-        if (!edit && post.kind() == Kind.NOTE && config.output() == Output.DOCUMENT) {
-            return Optional.of(new NetworkResult.Skipped(NETWORK, SkipReason.KIND_NOT_SUPPORTED,
-                    "quarkus.social.atproto.output=document publishes only ARTICLE posts"));
-        }
-        boolean skip = BlueskyPosts.warned(post) && post.atprotoLabels().isEmpty()
-                && ContentWarningSetting.parse(config.contentWarning()).mode() == ContentWarningSetting.Mode.SKIP;
-        if (skip && !edit) {
-            return Optional.of(new NetworkResult.Skipped(NETWORK, SkipReason.CONTENT_WARNING_NOT_SUPPORTED,
-                    "Bluesky has no free-text content warning (quarkus.social.atproto.content-warning=skip)"));
-        }
-        if (skip) {
-            return Optional.of(new NetworkResult.Failed(NETWORK, FailureCode.CONTENT_WARNING_NOT_SUPPORTED,
-                    "the post now has a content warning, which Bluesky can't show "
-                            + "(quarkus.social.atproto.content-warning=skip); the existing Bluesky copy is unchanged",
-                    false, Map.of()));
-        }
-        return Optional.empty();
     }
 
     /** Runs {@code work} on a worker thread, mapping exceptions to results with the refs written so far. */
@@ -239,7 +216,8 @@ public class AtprotoSocialAdapter implements SocialAdapter {
             }
             return failed(FailureCode.REJECTED, message(e), false, refs);
         }
-        if (e instanceof RecordValidationException || e instanceof IllegalArgumentException) {
+        if (e instanceof RecordValidationException || e instanceof IllegalArgumentException
+                || e instanceof AtprotoRepo.KeyCollision) {
             return failed(FailureCode.REJECTED, message(e), false, refs);
         }
         LOG.warnf(e, "post %s: Bluesky publishing failed", postId);

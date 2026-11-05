@@ -48,8 +48,8 @@ class ScopeAdvisorTest {
         assertTrue(ScopeAdvisor.warning("atproto repo:app.bsky.feed.post?action=create",
                 TestConfig.defaults().withOutput(Output.POST)).isPresent());
         // a scope without actions allows all of them
-        assertEquals(Optional.empty(), ScopeAdvisor.warning("atproto repo:app.bsky.feed.post repo:site.standard.document",
-                TestConfig.defaults()));
+        assertEquals(Optional.empty(), ScopeAdvisor.warning(
+                "atproto repo:app.bsky.feed.post repo:site.standard.document", TestConfig.defaults()));
     }
 
     @Test

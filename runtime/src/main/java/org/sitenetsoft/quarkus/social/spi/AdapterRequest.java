@@ -14,7 +14,18 @@ import org.sitenetsoft.quarkus.social.store.NetworkState;
  * @param post the post; for {@code delete}, the stored snapshot
  * @param content the post's sanitized HTML and plain text
  * @param previous what an earlier call stored for this post and network, so a retry writes only the missing parts
+ * @param stored for {@code update}: the post as stored before this edit (what the networks have); empty otherwise
  */
 public record AdapterRequest(String account, String identity, Post post, PostContent content,
-        Optional<NetworkState> previous) {
+        Optional<NetworkState> previous, Optional<Post> stored) {
+
+    public AdapterRequest {
+        stored = stored == null ? Optional.empty() : stored;
+    }
+
+    /** A request without a stored snapshot ({@code publish}, {@code delete}). */
+    public AdapterRequest(String account, String identity, Post post, PostContent content,
+            Optional<NetworkState> previous) {
+        this(account, identity, post, content, previous, Optional.empty());
+    }
 }

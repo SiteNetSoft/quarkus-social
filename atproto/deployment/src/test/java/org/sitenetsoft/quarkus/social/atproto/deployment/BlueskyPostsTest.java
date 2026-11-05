@@ -22,6 +22,7 @@ import org.sitenetsoft.quarkus.social.Kind;
 import org.sitenetsoft.quarkus.social.NetworkResult;
 import org.sitenetsoft.quarkus.social.Post;
 import org.sitenetsoft.quarkus.social.atproto.BlueskyPosts;
+import org.sitenetsoft.quarkus.social.atproto.ContentWarningSetting;
 import org.sitenetsoft.quarkus.social.content.PostContent;
 import org.sitenetsoft.quarkus.social.spi.AdapterRequest;
 
@@ -33,12 +34,13 @@ class BlueskyPostsTest {
 
     static final Instant PUBLISHED = Instant.parse("2026-11-04T10:15:30.123456Z");
     static final URI URL = URI.create("https://blog.example/posts/hello");
+    static final ContentWarningSetting SKIP = ContentWarningSetting.parse("skip");
 
     @Test
     void noteTextWithFacets() {
         String text = "Café 👩‍💻 https://blog.example/é #quarkus";
         app.bsky.feed.Post post = BlueskyPosts.build(request(Post.builder("n1").text(text).language("fr")
-                .publishedAt(PUBLISHED).build()), TestConfig.defaults());
+                .publishedAt(PUBLISHED).build()), SKIP);
         assertEquals(text, post.text());
         assertEquals(List.of(Language.parse("fr")), post.langs());
         // AT Protocol datetimes carry milliseconds
@@ -58,20 +60,20 @@ class BlueskyPostsTest {
     void noteOver300Fails() {
         String text = "a".repeat(301);
         BlueskyPosts.Refused refused = assertThrows(BlueskyPosts.Refused.class,
-                () -> BlueskyPosts.build(request(Post.builder("n2").text(text).build()), TestConfig.defaults()));
+                () -> BlueskyPosts.build(request(Post.builder("n2").text(text).build()), SKIP));
         NetworkResult.Failed failed = assertInstanceOf(NetworkResult.Failed.class, refused.result());
         assertEquals(FailureCode.TEXT_TOO_LONG, failed.code());
         assertFalse(failed.retryable());
         // exactly 300 is fine
         assertEquals(300, Graphemes.count(BlueskyPosts.build(request(Post.builder("n3").text("é".repeat(300))
-                .build()), TestConfig.defaults()).text()));
+                .build()), SKIP).text()));
     }
 
     @Test
     void articleTeaserTrimmedWithCard() {
         String summary = "word ".repeat(80); // 400 graphemes
         app.bsky.feed.Post post = BlueskyPosts.build(request(article("a1").summary(summary).build()),
-                TestConfig.defaults());
+                SKIP);
         assertTrue(Graphemes.count(post.text()) <= 300, () -> Graphemes.count(post.text()) + " graphemes");
         assertTrue(post.text().startsWith("Hello world\n\nword word"), post.text());
         assertTrue(post.text().endsWith("…"), post.text());
@@ -84,7 +86,7 @@ class BlueskyPostsTest {
     @Test
     void articleWithoutSummaryUsesFirstParagraph() {
         app.bsky.feed.Post post = BlueskyPosts.build(request(article("a2")
-                .html("<p>First paragraph #java.</p><p>Second paragraph.</p>").build()), TestConfig.defaults());
+                .html("<p>First paragraph #java.</p><p>Second paragraph.</p>").build()), SKIP);
         assertEquals("Hello world\n\nFirst paragraph #java.", post.text());
         Embed.External embed = assertInstanceOf(Embed.External.class, post.embed());
         assertEquals("", embed.value().external().description());
@@ -97,7 +99,7 @@ class BlueskyPostsTest {
         // the 👩‍💻 graphemes straddle the 300th grapheme
         String summary = "x".repeat(285) + "👩‍💻".repeat(30);
         app.bsky.feed.Post post = BlueskyPosts.build(request(article("a3").summary(summary).build()),
-                TestConfig.defaults());
+                SKIP);
         assertTrue(Graphemes.count(post.text()) <= 300);
         assertTrue(post.text().endsWith("👩‍💻…"), post.text());
         String body = post.text().substring(0, post.text().length() - 1);
@@ -106,18 +108,36 @@ class BlueskyPostsTest {
     }
 
     @Test
+    void teaserDropsFacetsTheCutReaches() {
+        // the summary ends in a URL that the 300-grapheme cut goes through, and a tag before it survives
+        String summary = "#kept " + "y".repeat(270) + " https://blog.example/a-long-path-that-gets-cut";
+        app.bsky.feed.Post post = BlueskyPosts.build(request(article("a4").summary(summary).build()), SKIP);
+        assertTrue(post.text().endsWith("…"), post.text());
+        assertEquals(1, post.facets().size(), () -> post.facets().toString());
+        assertEquals("#kept", slice(post.text(), post.facets().get(0)));
+        // a tag ending right at the cut is dropped too: it may have been longer
+        String tagged = "y".repeat(280) + " #abcdefghijklmnopqrstuvwxyz";
+        app.bsky.feed.Post cutTag = BlueskyPosts.build(request(article("a5").summary(tagged).build()), SKIP);
+        assertNull(cutTag.facets(), () -> cutTag.facets().toString());
+        // nothing cut: every facet stays
+        app.bsky.feed.Post whole = BlueskyPosts.build(request(article("a6").summary("See https://blog.example/x #tag")
+                .build()), SKIP);
+        assertEquals(2, whole.facets().size());
+    }
+
+    @Test
     void labelSettingAddsSelfLabel() {
         Post sensitive = Post.builder("n4").text("Careful").contentWarning("gore").build();
         app.bsky.feed.Post labelled = BlueskyPosts.build(request(sensitive),
-                TestConfig.defaults().withContentWarning("label:graphic-media"));
+                ContentWarningSetting.parse("label:graphic-media"));
         Labels.SelfLabels labels = assertInstanceOf(Labels.SelfLabels.class, labelled.labels());
         assertEquals(List.of("graphic-media"), labels.value().values().stream().map(l -> l.val()).toList());
         // drop: no label
-        assertNull(BlueskyPosts.build(request(sensitive), TestConfig.defaults().withContentWarning("drop")).labels());
+        assertNull(BlueskyPosts.build(request(sensitive), ContentWarningSetting.parse("drop")).labels());
         // the post's own hint wins over the setting, and applies without a warning too
         Post hinted = Post.builder("n5").text("Art").atprotoLabels(List.of("nudity")).build();
         Labels.SelfLabels own = assertInstanceOf(Labels.SelfLabels.class, BlueskyPosts.build(request(hinted),
-                TestConfig.defaults().withContentWarning("label:porn")).labels());
+                ContentWarningSetting.parse("label:porn")).labels());
         assertEquals(List.of("nudity"), own.value().values().stream().map(l -> l.val()).toList());
     }
 

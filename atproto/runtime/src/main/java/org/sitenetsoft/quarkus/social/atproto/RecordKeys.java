@@ -4,40 +4,70 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.sitenetsoft.atproto.syntax.Nsid;
 import org.sitenetsoft.atproto.syntax.RecordKey;
+import org.sitenetsoft.atproto.syntax.SyntaxException;
 import org.sitenetsoft.atproto.syntax.Tid;
 
 /**
  * Record keys derived from the post, so a retried write lands on the same key and finds what an earlier attempt
- * wrote. Both collections use the Lexicon key type {@code tid}: the timestamp is the given time in microseconds, the
- * 10-bit clock id comes from a hash of the post id, the collection and a salt.
+ * wrote. Both collections use the Lexicon key type {@code tid}: a timestamp in microseconds and a 10-bit clock id from
+ * a hash of a seed (post id, collection, …).
+ * <p>
+ * Two posts published in the same microsecond share a key with probability 1/1024, so each record has a fixed
+ * sequence of candidates: index 0 is {@code hash(seed)}, then {@value #PROBES} alternatives
+ * {@code hash(seed + "\n" + i)}. A writer takes the first candidate that is free or already holds this post's record;
+ * every retry walks the same sequence.
  */
-final class RecordKeys {
+public final class RecordKeys {
 
+    static final int PROBES = 8;
     private static final String ALPHABET = "234567abcdefghijklmnopqrstuvwxyz";
     private static final long MAX_MICROS = (1L << 53) - 1;
 
     private RecordKeys() {
     }
 
-    /** The key of the post's first record in {@code collection}: timestamp {@code publishedAt}. */
-    static RecordKey of(String postId, Nsid collection, Instant publishedAt) {
-        return tid(micros(publishedAt), clockId(postId + "\n" + collection));
+    /** The candidate keys of the post's first record in {@code collection}: timestamp {@code publishedAt}. */
+    public static List<RecordKey> of(String postId, Nsid collection, Instant publishedAt) {
+        return sequence(micros(publishedAt), postId + "\n" + collection, null);
     }
 
     /**
-     * The key of a record that replaces an earlier one at {@code now} (an edit recreating the Bluesky post): a different
-     * clock-id salt, so it differs from {@link #of} even at the same microsecond.
+     * The candidate keys of a record replacing {@code old} (an edit recreating the Bluesky post): the old key's
+     * timestamp (the publication time when it isn't a TID) and a clock id from the post id and the old key, never the
+     * old key itself. A retried edit finds the replacement an earlier attempt created.
      */
-    static RecordKey replacement(String postId, Nsid collection, Instant now) {
-        return tid(micros(now), clockId(postId + "\n" + collection + "\nreplacement"));
+    static List<RecordKey> replacing(String postId, Nsid collection, RecordKey old, Instant publishedAt) {
+        long micros;
+        try {
+            micros = micros(Tid.parse(old.value()).timestamp());
+        } catch (SyntaxException e) {
+            micros = micros(publishedAt);
+        }
+        return sequence(micros, postId + "\n" + collection + "\nreplacing\n" + old.value(), old);
+    }
+
+    private static List<RecordKey> sequence(long micros, String seed, RecordKey except) {
+        List<RecordKey> keys = new ArrayList<>(PROBES + 1);
+        for (int i = 0; i <= PROBES; i++) {
+            RecordKey key = tid(micros, clockId(i == 0 ? seed : seed + "\n" + i));
+            if (!key.equals(except) && !keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        return List.copyOf(keys);
     }
 
     private static long micros(Instant t) {
-        long micros = Math.multiplyExact(t.getEpochSecond(), 1_000_000L) + t.getNano() / 1_000;
-        return Math.min(Math.max(micros, 0), MAX_MICROS);
+        if (t.isBefore(Instant.EPOCH)) {
+            return 0;
+        }
+        long seconds = Math.min(t.getEpochSecond(), MAX_MICROS / 1_000_000L);
+        return Math.min(seconds * 1_000_000L + t.getNano() / 1_000, MAX_MICROS);
     }
 
     private static long clockId(String seed) {

@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +35,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.sitenetsoft.atproto.syntax.AtUri;
+import org.sitenetsoft.atproto.syntax.Nsid;
+import org.sitenetsoft.atproto.syntax.RecordKey;
 import org.sitenetsoft.atproto.syntax.Tid;
 import org.sitenetsoft.quarkus.atproto.oauth.AtprotoSessions;
 import org.sitenetsoft.quarkus.atproto.oauth.link.AtprotoAccountLinks;
@@ -50,6 +53,7 @@ import org.sitenetsoft.quarkus.social.SkipReason;
 import org.sitenetsoft.quarkus.social.Social;
 import org.sitenetsoft.quarkus.social.Visibility;
 import org.sitenetsoft.quarkus.social.atproto.AtprotoSocialAdapter;
+import org.sitenetsoft.quarkus.social.atproto.RecordKeys;
 import org.sitenetsoft.quarkus.social.atproto.ScopeAdvisor;
 import org.sitenetsoft.quarkus.social.content.PostContent;
 import org.sitenetsoft.quarkus.social.spi.AdapterRequest;
@@ -251,10 +255,10 @@ public class AtprotoPublishTest {
         Post post = AtprotoApps.article(newId()).build();
         assertPublished(social.publish(ANN, post), ATPROTO);
         Map<AtUri, JsonNode> before = FAKE.pds().records();
-        NetworkResult.Failed failed = assertFailed(social.update(ANN, AtprotoApps.article(post.id()).contentWarning("film")
-                .build()), ATPROTO, FailureCode.CONTENT_WARNING_NOT_SUPPORTED);
+        NetworkResult.Failed failed = assertFailed(social.update(ANN, AtprotoApps.article(post.id())
+                .contentWarning("film").build()), ATPROTO, FailureCode.CONTENT_WARNING_NOT_SUPPORTED);
         assertFalse(failed.retryable());
-        assertTrue(failed.reason().contains("the existing Bluesky copy is unchanged"), failed.reason());
+        assertTrue(failed.reason().contains("the existing Bluesky post is unchanged"), failed.reason());
         assertEquals(before, FAKE.pds().records());
     }
 
@@ -282,6 +286,40 @@ public class AtprotoPublishTest {
         // the stored state has the new CID: a second edit swaps on it
         assertPublished(social.update(ANN, AtprotoApps.article(post.id()).title("Edited again").build()), ATPROTO);
         assertEquals("Edited again", FAKE.pds().records().get(docUri).path("title").asText());
+    }
+
+    @Test
+    void keyCollisionTakesTheNextKey() {
+        // two post ids whose first record key is the same (same publication time, same 10-bit clock id)
+        Nsid collection = Nsid.parse("app.bsky.feed.post");
+        Map<RecordKey, String> seen = new HashMap<>();
+        String[] pair = null;
+        for (int i = 0; pair == null; i++) {
+            String id = "collide-" + i;
+            String other = seen.putIfAbsent(RecordKeys.of(id, collection, AtprotoApps.PUBLISHED).get(0), id);
+            if (other != null) {
+                pair = new String[] {other, id};
+            }
+        }
+        Post a = Post.builder(pair[0]).text("First").publishedAt(AtprotoApps.PUBLISHED).build();
+        Post b = Post.builder(pair[1]).text("Second").publishedAt(AtprotoApps.PUBLISHED).build();
+        NetworkResult.Published pa = assertPublished(social.publish(ANN, a), ATPROTO);
+        NetworkResult.Published pb = assertPublished(social.publish(ANN, b), ATPROTO);
+        assertNotEquals(pa.refs().get("post.uri"), pb.refs().get("post.uri"));
+        assertEquals(2, FAKE.pds().records().size());
+        assertEquals("Second", FAKE.pds().records().get(AtUri.parse(pb.refs().get("post.uri"))).path("text").asText());
+
+        // b's retry after a lost answer walks the same keys and finds its own record
+        NetworkState lost = new NetworkState(ATPROTO, NetworkState.Status.FAILED, Map.of(),
+                Optional.of(FailureCode.TIMEOUT.name()), Optional.empty(), Instant.now(), Optional.empty());
+        NetworkResult.Published again = assertInstanceOf(NetworkResult.Published.class,
+                adapter.publish(request(b, Optional.of(lost))).await().atMost(WAIT));
+        assertEquals(pb.refs(), again.refs());
+        assertEquals(2, FAKE.pds().records().size());
+
+        // deleting one leaves the other
+        assertPublished(social.delete(ANN, b.id()), ATPROTO);
+        assertEquals(Set.of(AtUri.parse(pa.refs().get("post.uri"))), FAKE.pds().records().keySet());
     }
 
     @Test

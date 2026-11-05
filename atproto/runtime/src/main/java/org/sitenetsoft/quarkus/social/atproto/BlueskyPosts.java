@@ -1,5 +1,6 @@
 package org.sitenetsoft.quarkus.social.atproto;
 
+import java.text.BreakIterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,6 +20,7 @@ import org.sitenetsoft.quarkus.social.spi.AdapterRequest;
 import com.atproto.label.Defs;
 
 import app.bsky.embed.External;
+import app.bsky.richtext.Facet;
 
 /**
  * The {@code app.bsky.feed.post} of a post.
@@ -34,6 +36,7 @@ import app.bsky.embed.External;
 public final class BlueskyPosts {
 
     static final int MAX_GRAPHEMES = 300;
+    private static final String ELLIPSIS = "…";
     private static final Pattern PARAGRAPH_BREAK = Pattern.compile("\\n[ \\t]*\\n\\s*");
 
     private BlueskyPosts() {
@@ -55,17 +58,21 @@ public final class BlueskyPosts {
     }
 
     /** @throws Refused ({@code TEXT_TOO_LONG}) for a NOTE over 300 graphemes */
-    public static app.bsky.feed.Post build(AdapterRequest req, AtprotoSocialConfig cfg) {
+    public static app.bsky.feed.Post build(AdapterRequest req, ContentWarningSetting cw) {
         Post post = req.post();
         String text;
+        List<Facet> facets;
         app.bsky.feed.Post.Embed embed = null;
         if (post.kind() == Kind.ARTICLE) {
             String title = post.title().orElseThrow();
             Optional<String> summary = post.summary().filter(s -> !s.isBlank());
             String lead = summary.or(() -> firstParagraph(req.content().text())).orElse("");
-            text = RichText.truncate(lead.isEmpty() ? title : title + "\n\n" + lead, MAX_GRAPHEMES, "…");
-            embed = new app.bsky.feed.Post.Embed.External(new External(new External.ExternalDef(post.url().orElseThrow(),
-                    title, summary.orElse(""), null, null)));
+            String full = lead.isEmpty() ? title : title + "\n\n" + lead;
+            text = RichText.truncate(full, MAX_GRAPHEMES, ELLIPSIS);
+            facets = text.equals(full) ? RichText.of(text).facets() : facetsBeforeCut(text);
+            External.ExternalDef card = new External.ExternalDef(post.url().orElseThrow(), title,
+                    summary.orElse(""), null, null);
+            embed = new app.bsky.feed.Post.Embed.External(new External(card));
         } else {
             text = req.content().text();
             int graphemes = Graphemes.count(text);
@@ -74,19 +81,33 @@ public final class BlueskyPosts {
                         "the text has " + graphemes + " graphemes; a Bluesky post takes at most " + MAX_GRAPHEMES,
                         false, Map.of()));
             }
+            facets = RichText.of(text).facets();
         }
-        List<String> labels = selfLabels(post, ContentWarningSetting.parse(cfg.contentWarning()));
-        return new app.bsky.feed.Post(text, null, nullIfEmpty(RichText.of(text).facets()), null, embed,
+        List<String> labels = selfLabels(post, cw);
+        return new app.bsky.feed.Post(text, null, facets.isEmpty() ? null : facets, null, embed,
                 post.language().filter(Language::isValid).map(l -> List.of(Language.parse(l))).orElse(null),
                 labels.isEmpty() ? null : new app.bsky.feed.Post.Labels.SelfLabels(selfLabels(labels)), null,
                 Datetime.of(post.publishedAt()));
     }
 
     /**
+     * The facets of a trimmed teaser ({@code text} ends with the ellipsis): a link or tag reaching into the last
+     * grapheme before the ellipsis may have been cut (a partial URL or tag), so it is dropped.
+     */
+    private static List<Facet> facetsBeforeCut(String text) {
+        String kept = text.substring(0, text.length() - ELLIPSIS.length());
+        BreakIterator graphemes = BreakIterator.getCharacterInstance();
+        graphemes.setText(kept);
+        int lastStart = graphemes.preceding(kept.length());
+        long limit = Graphemes.utf8Length(kept.substring(0, Math.max(lastStart, 0)));
+        return RichText.of(text).facets().stream().filter(f -> f.index().byteEnd() <= limit).toList();
+    }
+
+    /**
      * The self-label values of a post: its own {@code atprotoLabels} when it has some, else the
      * {@code label:<value>} setting's value when the post has a content warning or is sensitive, else none.
      */
-    static List<String> selfLabels(Post post, ContentWarningSetting setting) {
+    public static List<String> selfLabels(Post post, ContentWarningSetting setting) {
         if (!post.atprotoLabels().isEmpty()) {
             return post.atprotoLabels();
         }
@@ -101,7 +122,7 @@ public final class BlueskyPosts {
     }
 
     /** Whether the post carries a content warning or is marked sensitive. */
-    static boolean warned(Post post) {
+    public static boolean warned(Post post) {
         return post.sensitive() || post.contentWarning().filter(w -> !w.isBlank()).isPresent();
     }
 
@@ -114,7 +135,4 @@ public final class BlueskyPosts {
         return Optional.empty();
     }
 
-    private static <T> List<T> nullIfEmpty(List<T> list) {
-        return list.isEmpty() ? null : list;
-    }
 }

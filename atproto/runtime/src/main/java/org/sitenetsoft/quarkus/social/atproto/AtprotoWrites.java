@@ -7,13 +7,16 @@ import static org.sitenetsoft.quarkus.social.atproto.AtprotoRefs.POST_NSID;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import org.sitenetsoft.atproto.syntax.AtUri;
+import org.sitenetsoft.atproto.syntax.RecordKey;
 import org.sitenetsoft.atproto.syntax.Did;
 import org.sitenetsoft.quarkus.atproto.xrpc.AtprotoRecords;
 import org.sitenetsoft.quarkus.atproto.xrpc.RecordResult;
@@ -36,6 +39,8 @@ import com.atproto.repo.StrongRef;
 public class AtprotoWrites {
 
     static final String POST_NOT_EDITED = "Bluesky post not edited";
+    /** The fields that are fixed for a post's document: where it lives and when it was published. */
+    private static final List<String> DOCUMENT_IDENTITY = List.of("/site", "/path", "/publishedAt");
 
     @Inject
     AtprotoRepo repo;
@@ -43,6 +48,13 @@ public class AtprotoWrites {
     AtprotoSocialConfig config;
     @Inject
     StandardSitePublications publications;
+
+    private ContentWarningSetting cw;
+
+    @PostConstruct
+    void init() {
+        cw = ContentWarningSetting.parse(config.contentWarning());
+    }
 
     /**
      * The post, then (ARTICLE) the document pointing at it, each at a key derived from the post, skipping what
@@ -53,14 +65,14 @@ public class AtprotoWrites {
         boolean wantPost = config.output() != Output.DOCUMENT;
         boolean wantDocument = post.kind() == Kind.ARTICLE && config.output() != Output.POST;
         Optional<StrongRef> postRef = AtprotoRefs.previous(req, POST);
-        app.bsky.feed.Post bsky = wantPost && postRef.isEmpty() ? BlueskyPosts.build(req, config) : null;
+        app.bsky.feed.Post bsky = wantPost && postRef.isEmpty() ? BlueskyPosts.build(req, cw) : null;
         Did did = Did.parse(req.identity());
         AtprotoRecords records = repo.records(did);
         boolean sent = false;
         if (wantPost) {
             if (postRef.isEmpty()) {
                 AtprotoRepo.Written w = repo.createOrFind(records, did, POST_NSID,
-                        RecordKeys.of(post.id(), POST_NSID, post.publishedAt()), bsky);
+                        RecordKeys.of(post.id(), POST_NSID, post.publishedAt()), bsky, postIdentity(post));
                 sent |= w.created();
                 postRef = Optional.of(w.ref());
             }
@@ -72,7 +84,7 @@ public class AtprotoWrites {
                 URI site = StandardSiteDocuments.site(publications, req);
                 AtprotoRepo.Written w = repo.createOrFind(records, did, DOCUMENT_NSID,
                         RecordKeys.of(post.id(), DOCUMENT_NSID, post.publishedAt()),
-                        StandardSiteDocuments.build(req, config, site, postRef, Optional.empty()));
+                        StandardSiteDocuments.build(req, cw, site, postRef, Optional.empty()), DOCUMENT_IDENTITY);
                 sent |= w.created();
                 docRef = Optional.of(w.ref());
             }
@@ -91,23 +103,25 @@ public class AtprotoWrites {
         Optional<StrongRef> postRef = AtprotoRefs.previous(req, POST);
         Optional<StrongRef> docRef = AtprotoRefs.previous(req, DOCUMENT);
         boolean recreate = postRef.isPresent() && config.editPost() == EditPost.RECREATE;
-        app.bsky.feed.Post bsky = recreate ? BlueskyPosts.build(req, config) : null;
+        app.bsky.feed.Post bsky = recreate ? BlueskyPosts.build(req, cw) : null;
         Did did = Did.parse(req.identity());
         AtprotoRecords records = repo.records(did);
         boolean sent = false;
         if (recreate) {
-            AtUri old = postRef.get().uri();
-            records.delete(POST_NSID, old.rkey().orElseThrow());
-            RecordResult r = records.create(POST_NSID, RecordKeys.replacement(post.id(), POST_NSID, Instant.now()),
-                    bsky);
-            postRef = Optional.of(new StrongRef(r.uri(), r.cid()));
+            // the new key is derived from the old one: a retried edit (the document put failed) finds the post it
+            // already created instead of adding a second one
+            RecordKey old = postRef.get().uri().rkey().orElseThrow();
+            records.delete(POST_NSID, old);
+            AtprotoRepo.Written w = repo.createOrFind(records, did, POST_NSID,
+                    RecordKeys.replacing(post.id(), POST_NSID, old, post.publishedAt()), bsky, postIdentity(post));
+            postRef = Optional.of(w.ref());
             AtprotoRefs.put(refs, POST, postRef.get());
             sent = true;
         }
         if (docRef.isPresent()) {
             AtUri uri = docRef.get().uri();
             RecordResult r = records.put(DOCUMENT_NSID, uri.rkey().orElseThrow(),
-                    StandardSiteDocuments.build(req, config, StandardSiteDocuments.site(publications, req), postRef,
+                    StandardSiteDocuments.build(req, cw, StandardSiteDocuments.site(publications, req), postRef,
                             Optional.of(Instant.now())),
                     Optional.of(docRef.get().cid()));
             AtprotoRefs.put(refs, DOCUMENT, new StrongRef(r.uri(), r.cid()));
@@ -129,6 +143,14 @@ public class AtprotoWrites {
             records.delete(POST_NSID, postRef.get().uri().rkey().orElseThrow());
         }
         return new NetworkResult.Published(Network.ATPROTO, Optional.empty(), Map.of(), Optional.empty(), true);
+    }
+
+    /**
+     * The fields that are fixed for a post's Bluesky record (a record at a derived key with other values there belongs
+     * to another post): {@code createdAt}, and the card's URL (ARTICLE) or the text (NOTE).
+     */
+    private static List<String> postIdentity(Post post) {
+        return List.of("/createdAt", post.kind() == Kind.ARTICLE ? "/embed/external/uri" : "/text");
     }
 
     /** The web link of the post (none for a document-only output; the {@code at://} URIs are in the refs). */

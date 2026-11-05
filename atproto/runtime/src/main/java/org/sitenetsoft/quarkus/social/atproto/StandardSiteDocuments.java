@@ -24,12 +24,12 @@ public final class StandardSiteDocuments {
     private StandardSiteDocuments() {
     }
 
-    public static Document build(AdapterRequest req, AtprotoSocialConfig cfg, URI site,
+    public static Document build(AdapterRequest req, ContentWarningSetting cw, URI site,
             Optional<StrongRef> bskyPostRef, Optional<Instant> updatedAt) {
         Post post = req.post();
         String path = post.url().map(URI::getRawPath).filter(p -> !p.isEmpty()).orElse(null);
         String text = req.content().text();
-        List<String> labels = BlueskyPosts.selfLabels(post, ContentWarningSetting.parse(cfg.contentWarning()));
+        List<String> labels = BlueskyPosts.selfLabels(post, cw);
         return new Document(path, site, post.tags().isEmpty() ? null : post.tags(), null, post.title().orElseThrow(),
                 labels.isEmpty() ? null : new Document.Labels.SelfLabels(BlueskyPosts.selfLabels(labels)), null,
                 updatedAt.map(Datetime::of).orElse(null), null, bskyPostRef.orElse(null),

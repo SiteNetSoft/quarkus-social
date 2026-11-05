@@ -16,10 +16,11 @@ Experimental. The AT Protocol (Bluesky) network of `quarkus-social`; it comes in
   `quarkus.social.atproto.content-warning`: `skip` (default), `drop` or `label:<sexual|nudity|porn|graphic-media>`;
   `Post.atprotoLabels(...)` wins.
 - Refs: `post.uri`, `post.cid`, `document.uri`, `document.cid`; `Published.url` from
-  `quarkus.social.atproto.post-url-template`. Record keys are TIDs derived from the post: a retried publish never
-  writes a second record.
+  `quarkus.social.atproto.post-url-template`. Record keys are TIDs derived from the post (with a fixed sequence of
+  fallback keys for posts published in the same microsecond): a retried publish never writes a second record.
 - Edits update the document (`put` with swap on the stored CID); the post is kept (note "Bluesky post not edited")
-  unless `quarkus.social.atproto.edit-post=recreate`. Deletes remove both records.
+  unless `quarkus.social.atproto.edit-post=recreate`. A content warning added by an edit to a kept post is
+  `Failed(CONTENT_WARNING_NOT_SUPPORTED)` (the Bluesky post is unchanged). Deletes remove both records.
 - The OAuth scope the output needs is logged at startup when `quarkus.atproto.oauth.scope` doesn't cover it (default
   output: `repo:app.bsky.feed.post?action=create&action=delete repo:site.standard.document?action=create&action=update&action=delete`).
 - Errors: `SESSION_EXPIRED` (sign in again), `SCOPE_MISSING`, `UNAVAILABLE` (retryable), `REJECTED`.
