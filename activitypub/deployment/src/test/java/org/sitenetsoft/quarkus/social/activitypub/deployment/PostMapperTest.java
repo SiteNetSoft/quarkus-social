@@ -136,6 +136,9 @@ public class PostMapperTest {
         Hashtag quarkus = assertInstanceOf(Hashtag.class, o.tag().get(0).object().orElseThrow());
         assertEquals("#quarkus", quarkus.name());
         assertEquals(URI.create(BASE + "/tags/quarkus"), quarkus.href());
+        Hashtag cafe = assertInstanceOf(Hashtag.class,
+                map(notes, note().tags(List.of("café")).build()).tag().get(0).object().orElseThrow());
+        assertEquals(URI.create(BASE + "/tags/caf%C3%A9"), cafe.href(), "path-encoded");
         Hashtag java = assertInstanceOf(Hashtag.class, o.tag().get(1).object().orElseThrow());
         assertEquals("#Java", java.name());
         assertEquals("<p>Hello fediverse</p><p><a href=\"" + BASE + "/tags/quarkus\" class=\"mention hashtag\" "

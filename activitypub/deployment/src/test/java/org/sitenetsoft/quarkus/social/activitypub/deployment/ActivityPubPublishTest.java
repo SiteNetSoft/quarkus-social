@@ -2,8 +2,10 @@ package org.sitenetsoft.quarkus.social.activitypub.deployment;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.sitenetsoft.quarkus.social.Network.ACTIVITYPUB;
+import static org.sitenetsoft.quarkus.social.test.SocialAssertions.assertFailed;
 import static org.sitenetsoft.quarkus.social.test.SocialAssertions.assertPublished;
 import static org.sitenetsoft.quarkus.social.test.SocialAssertions.assertSkipped;
 
@@ -18,6 +20,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
@@ -30,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.sitenetsoft.activitystreams.ASJson;
+import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActors;
 import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryEvents.DeliveriesSubmitted;
 import org.sitenetsoft.quarkus.activitypub.store.FollowState;
@@ -37,11 +42,14 @@ import org.sitenetsoft.quarkus.activitypub.store.Stores;
 import org.sitenetsoft.quarkus.activitypub.test.FakeActor;
 import org.sitenetsoft.quarkus.activitypub.test.FakeFediverseServer;
 import org.sitenetsoft.quarkus.activitypub.test.ReceivedRequest;
+import org.sitenetsoft.quarkus.social.FailureCode;
 import org.sitenetsoft.quarkus.social.NetworkResult;
 import org.sitenetsoft.quarkus.social.Post;
 import org.sitenetsoft.quarkus.social.SkipReason;
 import org.sitenetsoft.quarkus.social.Social;
+import org.sitenetsoft.quarkus.social.Visibility;
 import org.sitenetsoft.quarkus.social.activitypub.ActivityPubSocialAdapter;
+import org.sitenetsoft.quarkus.social.activitypub.PostMapper;
 import org.sitenetsoft.quarkus.social.content.PostContent;
 import org.sitenetsoft.quarkus.social.events.SocialDeliveryProgress;
 import org.sitenetsoft.quarkus.social.spi.AdapterRequest;
@@ -69,6 +77,7 @@ public class ActivityPubPublishTest {
             .overrideConfigKey("quarkus.http.test-port", String.valueOf(PORT))
             .overrideConfigKey("quarkus.activitypub.base-url", BASE)
             .overrideConfigKey("quarkus.activitypub.delivery.poll-interval", "1s")
+            .overrideConfigKey("quarkus.social.timeout", "3s")
             .overrideConfigKey("quarkus.safe-fetch.https-only", "false")
             .overrideConfigKey("quarkus.safe-fetch.allow-private-addresses", "true");
 
@@ -82,6 +91,8 @@ public class ActivityPubPublishTest {
     Stores stores;
     @Inject
     Observed observed;
+    @Inject
+    ActivityPubUrls urls;
 
     @BeforeAll
     static void startFake() {
@@ -107,7 +118,7 @@ public class ActivityPubPublishTest {
         URI objectId = URI.create(published.refs().get("object"));
         assertTrue(published.refs().containsKey("activity"), published.refs().toString());
         assertEquals(Optional.of(objectId), published.url());
-        assertEquals(Optional.of("queued for 1 inboxes, 0 failed at once"), published.note());
+        assertEquals(Optional.of("queued for 1 inbox, 0 failed at once"), published.note());
 
         ReceivedRequest request = awaitInbox("Create", objectId);
         assertTrue(request.verified(), "the delivery is signed with alice's key");
@@ -146,13 +157,34 @@ public class ActivityPubPublishTest {
         assertTrue(updated.refs().containsKey("activity.update.1"), updated.refs().toString());
         assertEquals(Optional.of(objectId), updated.url());
 
+        JsonNode create = json(awaitInbox("Create", objectId));
         JsonNode update = json(awaitInbox("Update", objectId));
         assertEquals(updated.refs().get("activity.update.1"), update.path("id").asText());
         assertEquals("<p>Second version</p>", update.path("object").path("content").asText());
+        assertEquals(create.path("object").path("published").asText(),
+                update.path("object").path("published").asText(), "an edit keeps the publication time");
+        assertTrue(update.path("object").hasNonNull("updated"));
 
         NetworkResult.Published again = assertPublished(social.update("alice",
                 Post.builder(post.id()).text("Third version").build()), ACTIVITYPUB);
         assertTrue(again.refs().containsKey("activity.update.2"), again.refs().toString());
+    }
+
+    /** Neither the Update nor its object addresses Public in any audience field. */
+    @Test
+    void followersOnlyUpdateStaysFollowersOnly() {
+        Post post = Post.builder(newId()).text("For followers").visibility(Visibility.FOLLOWERS).build();
+        URI objectId = objectId(assertPublished(social.publish("alice", post), ACTIVITYPUB));
+        assertPublished(social.update("alice", Post.builder(post.id()).text("Still for followers")
+                .visibility(Visibility.FOLLOWERS).build()), ACTIVITYPUB);
+
+        JsonNode update = json(awaitInbox("Update", objectId));
+        for (JsonNode node : List.of(update, update.path("object"))) {
+            for (String field : List.of("to", "cc", "bto", "bcc", "audience")) {
+                assertFalse(node.path(field).toString().contains("Public"), field + ": " + node.path(field));
+            }
+            assertTrue(node.path("to").toString().contains(BASE + "/users/alice/followers"), node.toString());
+        }
     }
 
     @Test
@@ -196,6 +228,36 @@ public class ActivityPubPublishTest {
         URI activityId = URI.create(one.refs().get("activity"));
         assertEquals(1, observed.submitted().stream().filter(activityId::equals).count(),
                 "the Create was published once");
+    }
+
+    /**
+     * The engine times out a publish whose ActivityPub call is still running; a retry meanwhile is answered
+     * IN_PROGRESS without a second Create, and once the first call is done a retry reports its object, not re-sent.
+     */
+    @Test
+    void retryWhileFirstPublishRunsIsInProgress() {
+        Post post = Post.builder(newId()).text("Slow first call").build();
+        URI objectId = PostMapper.objectId(urls, post.id());
+        URI createId = PostMapper.createId(urls, post.id());
+        CountDownLatch gate = observed.block(createId);
+        try {
+            assertFailed(social.publish("alice", post), ACTIVITYPUB, FailureCode.TIMEOUT);
+            assertFailed(social.publish("alice", post), ACTIVITYPUB, FailureCode.IN_PROGRESS);
+        } finally {
+            gate.countDown();
+        }
+        awaitInbox("Create", objectId);
+
+        // through the adapter: the engine keeps the IN_PROGRESS answer as a lease until it expires
+        NetworkState inProgress = new NetworkState(ACTIVITYPUB, NetworkState.Status.FAILED, Map.of(),
+                Optional.of("IN_PROGRESS"), Optional.of("still running"), Instant.now(), Optional.empty());
+        AdapterRequest retry = new AdapterRequest("alice", "alice", post, PostContent.of(post),
+                Optional.of(inProgress));
+        await().atMost(WAIT).until(() -> adapter.publish(retry).await().atMost(WAIT)
+                instanceof NetworkResult.Published p && !p.resent()
+                && p.refs().equals(Map.of("object", objectId.toString(), "activity", createId.toString())));
+        assertEquals(1, observed.submitted().stream().filter(createId::equals).count(), "one Create published");
+        assertEquals(1, inbox("Create", objectId).size(), "one Create delivered");
     }
 
     // ---- helpers ----
@@ -274,13 +336,26 @@ public class ActivityPubPublishTest {
     public static class Observed {
         final List<SocialDeliveryProgress> progress = new CopyOnWriteArrayList<>();
         final List<URI> submitted = new CopyOnWriteArrayList<>();
+        volatile URI blockOn;
+        volatile CountDownLatch gate;
 
         void on(@Observes SocialDeliveryProgress event) {
             progress.add(event);
         }
 
-        void on(@Observes DeliveriesSubmitted event) {
+        /** Holds the publishing thread inside the submission of {@code activityId} until the latch opens. */
+        void on(@Observes DeliveriesSubmitted event) throws InterruptedException {
             submitted.add(event.activityId());
+            CountDownLatch latch = gate;
+            if (latch != null && event.activityId().equals(blockOn)) {
+                latch.await(60, TimeUnit.SECONDS);
+            }
+        }
+
+        CountDownLatch block(URI activityId) {
+            blockOn = activityId;
+            gate = new CountDownLatch(1);
+            return gate;
         }
 
         List<DeliveryProgress> progress(String postId) {

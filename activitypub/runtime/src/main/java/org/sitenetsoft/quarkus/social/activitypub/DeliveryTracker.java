@@ -26,6 +26,7 @@ import org.sitenetsoft.quarkus.social.engine.PublishEngine;
 import org.sitenetsoft.quarkus.social.store.DeliveryProgress;
 import org.sitenetsoft.quarkus.social.store.NetworkState;
 
+import io.quarkus.runtime.Startup;
 import io.vertx.core.Context;
 
 /**
@@ -45,6 +46,7 @@ import io.vertx.core.Context;
  * their post is looked up with {@link PublishEngine#findPostIdByRef} and its stored counts moved by one, best effort.
  */
 @ApplicationScoped
+@Startup
 public class DeliveryTracker {
 
     private static final Logger LOG = Logger.getLogger(DeliveryTracker.class);
@@ -67,6 +69,7 @@ public class DeliveryTracker {
     private final Object restoredLock = new Object();
     private Instant started;
 
+    /** At startup ({@code @Startup}), so deliveries queued before this run are told apart from the first event on. */
     @PostConstruct
     void init() {
         started = clock.instant();

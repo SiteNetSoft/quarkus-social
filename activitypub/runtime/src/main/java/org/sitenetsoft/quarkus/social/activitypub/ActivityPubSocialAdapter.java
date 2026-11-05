@@ -5,6 +5,8 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.OptionalInt;
 import java.util.function.Supplier;
 
@@ -65,7 +67,8 @@ public class ActivityPubSocialAdapter implements SocialAdapter {
 
     private static final Logger LOG = Logger.getLogger(ActivityPubSocialAdapter.class);
     private static final Network NETWORK = Network.ACTIVITYPUB;
-    private static final Capabilities CAPABILITIES = new Capabilities(EnumSet.allOf(Visibility.class),
+    private static final Capabilities CAPABILITIES = new Capabilities(
+            EnumSet.of(Visibility.PUBLIC, Visibility.UNLISTED, Visibility.FOLLOWERS),
             EnumSet.of(Kind.NOTE, Kind.ARTICLE), true, true, true, OptionalInt.empty(), true, true);
 
     @Inject
@@ -87,6 +90,8 @@ public class ActivityPubSocialAdapter implements SocialAdapter {
     @Inject
     InjectableInstance<ReactiveSocialAccountLinks> reactiveAppLinks;
 
+    /** Post ids whose publish is running in this process (an engine timeout does not stop the blocking call). */
+    private final Set<String> publishing = ConcurrentHashMap.newKeySet();
     private PostMapper mapper;
 
     @PostConstruct
@@ -149,7 +154,25 @@ public class ActivityPubSocialAdapter implements SocialAdapter {
         return call(req, () -> doDelete(req));
     }
 
+    /**
+     * At most one publish per post id at a time in this process: a call the engine timed out may still be running
+     * (recipient lookups happen outside the transaction), and the stored-object check below would not see its object
+     * yet, so a retry meanwhile is answered {@code IN_PROGRESS} without calling ActivityPub.
+     */
     private NetworkResult doPublish(AdapterRequest req) {
+        String postId = req.post().id();
+        if (!publishing.add(postId)) {
+            return new NetworkResult.Failed(NETWORK, FailureCode.IN_PROGRESS,
+                    "a previous publish of this post is still running", true, Map.of());
+        }
+        try {
+            return publishOnce(req);
+        } finally {
+            publishing.remove(postId);
+        }
+    }
+
+    private NetworkResult publishOnce(AdapterRequest req) {
         LocalActor actor = actor(req.identity());
         String postId = req.post().id();
         URI objectId = PostMapper.objectId(urls, postId);
@@ -185,6 +208,8 @@ public class ActivityPubSocialAdapter implements SocialAdapter {
         LocalActor actor = actor(req.identity());
         ASObject object = mapper.toObject(actor, req, urls);
         object.id(objectId.get());
+        // an edit keeps the original publication time
+        stores.objects().find(objectId.get()).map(ASObject::published).ifPresent(object::published);
         String ref = UPDATE_PREFIX + (lastUpdate(req) + 1);
         try (DeliveryTracker.Call call = tracker.begin(req.post().id(), null)) {
             Activity update = activityPub.update(actor, object);
@@ -260,12 +285,13 @@ public class ActivityPubSocialAdapter implements SocialAdapter {
         return last;
     }
 
-    /** {@code queued for N inboxes, M failed at once}: pending deliveries, and those failed or given up at submit. */
+    /** {@code queued for N inbox(es), M failed at once}: pending deliveries, and those failed or given up at submit. */
     private static String note(Optional<DeliveriesSubmitted> submitted) {
         List<DeliveryState> states = submitted.map(s -> s.deliveries().stream().map(d -> d.state()).toList())
                 .orElse(List.of());
         long queued = states.stream().filter(s -> s == DeliveryState.PENDING).count();
-        return "queued for " + queued + " inboxes, " + (states.size() - queued) + " failed at once";
+        return "queued for " + queued + (queued == 1 ? " inbox, " : " inboxes, ") + (states.size() - queued)
+                + " failed at once";
     }
 
     /** @param sent whether this call sent anything */

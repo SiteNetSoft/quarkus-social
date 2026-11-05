@@ -58,11 +58,12 @@ public final class PostMapper {
         object.id(objectId(urls, post.id()));
         object.attributedTo(ObjectOrLink.of(actor.id()));
         object.published(post.publishedAt());
-        switch (post.visibility()) {
-            case PUBLIC -> object.to(ObjectOrLink.of(Audience.PUBLIC)).cc(ObjectOrLink.of(followers));
-            case UNLISTED -> object.to(ObjectOrLink.of(followers)).cc(ObjectOrLink.of(Audience.PUBLIC));
-            case FOLLOWERS -> object.to(ObjectOrLink.of(followers));
-        }
+        Audiences audiences = switch (post.visibility()) {
+            case PUBLIC -> new Audiences(List.of(Audience.PUBLIC), List.of(followers));
+            case UNLISTED -> new Audiences(List.of(followers), List.of(Audience.PUBLIC));
+            case FOLLOWERS -> new Audiences(List.of(followers), List.of());
+        };
+        object.to(links(audiences.to())).cc(links(audiences.cc()));
 
         String content;
         if (post.kind() != Kind.ARTICLE) {
@@ -150,7 +151,15 @@ public final class PostMapper {
         if (base.endsWith("/")) {
             base = base.substring(0, base.length() - 1);
         }
-        return URI.create(base + "/tags/" + URLEncoder.encode(tag, StandardCharsets.UTF_8));
+        // a path segment: URLEncoder's form encoding, with a space as %20 rather than +
+        return URI.create(base + "/tags/" + URLEncoder.encode(tag, StandardCharsets.UTF_8).replace("+", "%20"));
+    }
+
+    private static ObjectOrLink[] links(List<URI> uris) {
+        return uris.stream().map(ObjectOrLink::of).toArray(ObjectOrLink[]::new);
+    }
+
+    private record Audiences(List<URI> to, List<URI> cc) {
     }
 
     private static String key(String postId) {
