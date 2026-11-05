@@ -14,13 +14,13 @@ import org.sitenetsoft.quarkus.social.Post;
 import org.sitenetsoft.quarkus.social.Social;
 import org.sitenetsoft.quarkus.social.SocialException;
 
-import io.quarkus.test.QuarkusUnitTest;
+import io.quarkus.test.QuarkusExtensionTest;
 
 /** An app with the core but no adapter yet starts (with a WARN) and refuses to publish. */
 public class NoAdapterTest {
 
     @RegisterExtension
-    static final QuarkusUnitTest app = new QuarkusUnitTest()
+    static final QuarkusExtensionTest app = new QuarkusExtensionTest()
             .setLogRecordPredicate(r -> r.getLevel().intValue() >= Level.WARNING.intValue()
                     && r.getLoggerName().startsWith("org.sitenetsoft.quarkus.social"))
             .assertLogRecords(records -> assertEquals(1,

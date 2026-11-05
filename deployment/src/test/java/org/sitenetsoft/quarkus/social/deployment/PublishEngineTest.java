@@ -49,13 +49,13 @@ import org.sitenetsoft.quarkus.social.store.StoredPost;
 import org.sitenetsoft.quarkus.social.test.RecordingSocialAdapter.Operation;
 import org.sitenetsoft.quarkus.social.test.RecordingSocialAdapter.RecordedRequest;
 
-import io.quarkus.test.QuarkusUnitTest;
+import io.quarkus.test.QuarkusExtensionTest;
 import io.vertx.core.Vertx;
 
 public class PublishEngineTest {
 
     @RegisterExtension
-    static final QuarkusUnitTest app = new QuarkusUnitTest()
+    static final QuarkusExtensionTest app = new QuarkusExtensionTest()
             .withApplicationRoot(jar -> jar.addClasses(TestAdapters.class, TestAdapters.AdapterA.class,
                     TestAdapters.AdapterB.class, TestAdapters.ProgressEvents.class))
             .overrideConfigKey("quarkus.social.timeout", "200ms");
@@ -253,6 +253,26 @@ public class PublishEngineTest {
 
         assertThrows(SocialException.class, () -> social.publish("mallory", note(id)));
         assertEquals(1, a.requests().size());
+    }
+
+    @Test
+    void repeatAfterDeleteThrows() {
+        String id = newId();
+        social.publish("alice", note(id));
+        social.delete("alice", id);
+
+        SocialException e = assertThrows(SocialException.class, () -> social.publish("alice", note(id)));
+        assertEquals("post " + id + " was deleted; publish it under a new id", e.getMessage());
+        assertEquals(2, a.requests().size());
+    }
+
+    @Test
+    void reservedRefNameIsAnAdapterBug() {
+        a.failNext(FailureCode.UNAVAILABLE, true, Map.of(NetworkState.URL_REF, "https://recording.example/x"));
+        PublishResult r = social.publish("alice", note(newId()));
+
+        NetworkResult.Failed f = assertFailed(r, A, FailureCode.INTERNAL);
+        assertTrue(f.reason().contains("reserved"), f.reason());
     }
 
     @Test

@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.sitenetsoft.quarkus.social.Capabilities;
 import org.sitenetsoft.quarkus.social.Network;
 import org.sitenetsoft.quarkus.social.NetworkResult;
+import org.sitenetsoft.quarkus.social.store.NetworkState;
 
 import io.smallrye.mutiny.Uni;
 
@@ -37,6 +38,13 @@ public interface SocialAdapter {
      */
     Uni<Optional<String>> linkedIdentity(String account);
 
+    /**
+     * Publishes the post. <b>Must be idempotent per post id</b> when {@code req.previous()} is present and not
+     * {@code PUBLISHED} ({@code FAILED}, including an expired {@code IN_PROGRESS} lease): an earlier call may have
+     * reached the network and still been reported as failed (a timeout, a crash before the state was saved). Derive
+     * protocol ids deterministically from the post id, write only what {@code previous.refs()} doesn't list, and treat
+     * "already exists" as success. Ref names must not be {@link NetworkState#URL_REF}.
+     */
     Uni<NetworkResult> publish(AdapterRequest req);
 
     Uni<NetworkResult> update(AdapterRequest req);

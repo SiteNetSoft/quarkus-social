@@ -1,11 +1,14 @@
 package org.sitenetsoft.quarkus.social.engine;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import org.sitenetsoft.quarkus.social.FailureCode;
+import org.sitenetsoft.quarkus.social.Network;
 import org.sitenetsoft.quarkus.social.NetworkResult;
 import org.sitenetsoft.quarkus.social.store.DeliveryProgress;
 import org.sitenetsoft.quarkus.social.store.NetworkState;
@@ -14,7 +17,25 @@ import org.sitenetsoft.quarkus.social.store.NetworkState.Status;
 /** Conversions between per-call {@link NetworkResult}s and stored {@link NetworkState}s. */
 final class States {
 
+    static final String IN_PROGRESS_DETAIL = "another publish of this post is in progress";
+
     private States() {
+    }
+
+    /**
+     * A publish run's lease on a network, written before its adapter is called: {@code FAILED(IN_PROGRESS)} keeping
+     * what {@code previous} knew (refs, delivery), so an abandoned run looks like a failure once the lease expires.
+     */
+    static NetworkState lease(Network network, NetworkState previous, Instant now) {
+        return new NetworkState(network, Status.FAILED, previous == null ? Map.of() : previous.refs(),
+                Optional.of(FailureCode.IN_PROGRESS.name()), Optional.of(IN_PROGRESS_DETAIL), now, delivery(previous));
+    }
+
+    /** A lease younger than {@code leaseTime}: another run is calling that network now. */
+    static boolean liveLease(NetworkState state, Instant now, Duration leaseTime) {
+        return state != null && state.status() == Status.FAILED
+                && state.code().filter(FailureCode.IN_PROGRESS.name()::equals).isPresent()
+                && state.at().plus(leaseTime).isAfter(now);
     }
 
     /**

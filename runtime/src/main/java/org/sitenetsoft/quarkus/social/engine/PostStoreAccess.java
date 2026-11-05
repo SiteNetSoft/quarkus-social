@@ -89,7 +89,7 @@ final class PostStoreAccess {
         });
     }
 
-    private Uni<Boolean> replace(StoredPost post, long expectedVersion) {
+    Uni<Boolean> replace(StoredPost post, long expectedVersion) {
         return reactive != null ? reactive.replace(post, expectedVersion)
                 : offload(() -> blocking.replace(post, expectedVersion));
     }

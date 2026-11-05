@@ -31,13 +31,13 @@ import org.sitenetsoft.quarkus.social.store.StoredPost;
 import org.sitenetsoft.quarkus.social.test.RecordingSocialAdapter.Operation;
 import org.sitenetsoft.quarkus.social.test.RecordingSocialAdapter.RecordedRequest;
 
-import io.quarkus.test.QuarkusUnitTest;
+import io.quarkus.test.QuarkusExtensionTest;
 
 /** "Edits that can't be carried" and delete. */
 public class UpdateRulesTest {
 
     @RegisterExtension
-    static final QuarkusUnitTest app = new QuarkusUnitTest()
+    static final QuarkusExtensionTest app = new QuarkusExtensionTest()
             .withApplicationRoot(jar -> jar.addClasses(TestAdapters.class, TestAdapters.AdapterA.class,
                     TestAdapters.AdapterB.class, TestAdapters.ProgressEvents.class));
 

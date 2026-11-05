@@ -8,5 +8,7 @@ public enum FailureCode {
     TEXT_TOO_LONG,
     CONTENT_WARNING_NOT_SUPPORTED,
     REJECTED,
-    INTERNAL
+    INTERNAL,
+    /** Another publish of the post (on this or another node) holds the network's lease; retry later. */
+    IN_PROGRESS
 }

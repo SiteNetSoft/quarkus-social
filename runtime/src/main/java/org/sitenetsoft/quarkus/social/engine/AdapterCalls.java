@@ -16,6 +16,7 @@ import org.sitenetsoft.quarkus.social.NetworkResult;
 import org.sitenetsoft.quarkus.social.SkipReason;
 import org.sitenetsoft.quarkus.social.spi.AdapterRequest;
 import org.sitenetsoft.quarkus.social.spi.SocialAdapter;
+import org.sitenetsoft.quarkus.social.store.NetworkState;
 
 import io.smallrye.mutiny.Uni;
 
@@ -97,7 +98,7 @@ final class AdapterCalls {
         });
     }
 
-    /** A null or other-network result is an adapter bug: reported as INTERNAL rather than stored as is. */
+    /** A null or other-network result, or a reserved ref name, is an adapter bug: reported as INTERNAL rather than stored as is. */
     private static NetworkResult checked(Network network, Operation op, NetworkResult r) {
         if (r == null) {
             return internal(network, op, new NullPointerException(op + " returned a null result"));
@@ -105,6 +106,15 @@ final class AdapterCalls {
         if (!network.equals(r.network())) {
             return internal(network, op, new IllegalStateException(
                     op + " returned a result for network " + r.network()));
+        }
+        Map<String, String> refs = switch (r) {
+            case NetworkResult.Published p -> p.refs();
+            case NetworkResult.Failed f -> f.refs();
+            case NetworkResult.Skipped s -> Map.of();
+        };
+        if (refs.containsKey(NetworkState.URL_REF)) {
+            return internal(network, op, new IllegalStateException(
+                    op + " returned a ref named " + NetworkState.URL_REF + ", which is reserved"));
         }
         return r;
     }

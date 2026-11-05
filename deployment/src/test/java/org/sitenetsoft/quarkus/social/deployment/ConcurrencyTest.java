@@ -26,7 +26,7 @@ import org.sitenetsoft.quarkus.social.PublishResult;
 import org.sitenetsoft.quarkus.social.Social;
 import org.sitenetsoft.quarkus.social.SocialException;
 
-import io.quarkus.test.QuarkusUnitTest;
+import io.quarkus.test.QuarkusExtensionTest;
 
 /** Two or more concurrent publish calls with one post id: each network gets the post once. */
 public class ConcurrencyTest {
@@ -34,7 +34,7 @@ public class ConcurrencyTest {
     private static final int CALLERS = 8;
 
     @RegisterExtension
-    static final QuarkusUnitTest app = new QuarkusUnitTest()
+    static final QuarkusExtensionTest app = new QuarkusExtensionTest()
             .withApplicationRoot(jar -> jar.addClasses(TestAdapters.class, TestAdapters.AdapterA.class,
                     TestAdapters.AdapterB.class, TestAdapters.ProgressEvents.class));
 

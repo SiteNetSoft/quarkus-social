@@ -1,8 +1,9 @@
 package org.sitenetsoft.quarkus.social.engine;
 
-import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -13,11 +14,9 @@ import org.sitenetsoft.quarkus.social.Network;
 import org.sitenetsoft.quarkus.social.Post;
 import org.sitenetsoft.quarkus.social.PublishResult;
 import org.sitenetsoft.quarkus.social.Social;
-import org.sitenetsoft.quarkus.social.SocialConfig;
 import org.sitenetsoft.quarkus.social.SocialException;
 import org.sitenetsoft.quarkus.social.store.StoredPost;
 
-import io.smallrye.mutiny.TimeoutException;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.Context;
 
@@ -27,8 +26,6 @@ public class SocialImpl implements Social {
 
     @Inject
     PublishEngine engine;
-    @Inject
-    SocialConfig config;
 
     @Override
     public PublishResult publish(String account, Post post) {
@@ -55,18 +52,31 @@ public class SocialImpl implements Social {
         return engine.capabilities();
     }
 
+    /**
+     * Waits without a bound and without cancelling: every adapter call is bounded by the timeout, and the work runs to
+     * completion (state saved) even if this thread is interrupted.
+     */
     private <T> T await(String operation, Supplier<Uni<T>> call) {
         if (Context.isOnEventLoopThread()) {
             throw new IllegalStateException("Social." + operation + " blocks and must not run on the Vert.x event loop; "
                     + "use ReactiveSocial there, or a worker thread (@Blocking)");
         }
-        // every adapter is bounded by the timeout; the rest is waiting for the post's lock and the store
-        Duration bound = config.timeout().multipliedBy(2).plusSeconds(30);
+        CompletableFuture<T> outcome = call.get().subscribeAsCompletionStage();
         try {
-            return call.get().await().atMost(bound);
-        } catch (TimeoutException e) {
-            throw new SocialException("Social." + operation + " did not finish within " + bound
-                    + "; status(postId) shows what was written", e);
+            return outcome.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SocialException("interrupted while waiting for Social." + operation
+                    + "; it carries on, and status(postId) shows what was written", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new SocialException("Social." + operation + " failed: " + cause, cause);
         }
     }
 }
