@@ -106,6 +106,28 @@ public abstract class SocialPostStoreContractTest {
     }
 
     @Test
+    public void refLongerThanTheIndexIsStoredButNotResolvable() {
+        String id = id();
+        String longRef = "https://ap-test.example.net/objects/" + "x".repeat(2000);
+        String shortRef = "https://ap-test.example.net/objects/" + id;
+        Map<Network, NetworkState> state = Map.of(Network.ACTIVITYPUB,
+                published(Network.ACTIVITYPUB, Map.of("object", shortRef, "activity", longRef)));
+        assertTrue(store().insert(stored(id, state)));
+        assertEquals(state, store().find(id).orElseThrow().networks());
+        assertTrue(store().replace(stored(id, state), 0));
+        assertEquals(state, store().find(id).orElseThrow().networks());
+        // the long ref round-trips with the state but doesn't resolve; the post's other refs do
+        assertTrue(store().findPostIdByRef(Network.ACTIVITYPUB, longRef).isEmpty());
+        assertEquals(Optional.of(id), store().findPostIdByRef(Network.ACTIVITYPUB, shortRef));
+        // the longest indexed length still resolves
+        String edge = "https://ap-test.example.net/o/" + id + "/";
+        edge = edge + "y".repeat(SocialPostStore.MAX_INDEXED_REF_LENGTH - edge.length());
+        assertTrue(store().replace(stored(id, Map.of(Network.ACTIVITYPUB,
+                published(Network.ACTIVITYPUB, Map.of("object", edge)))), 1));
+        assertEquals(Optional.of(id), store().findPostIdByRef(Network.ACTIVITYPUB, edge));
+    }
+
+    @Test
     public void postsMayShareARef() {
         String a = id();
         String b = id();

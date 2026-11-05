@@ -11,7 +11,8 @@ import jakarta.persistence.Table;
 /**
  * One protocol id on one network and the post it belongs to ({@code social_ref}); answers {@code findPostIdByRef}.
  * Not unique: two posts may carry the same ref value. {@code ref_hash} (lowercase SHA-256 hex of {@code ref}) keeps
- * the lookup index short; the lookup compares {@code ref} exactly.
+ * the lookup index short; the lookup compares {@code ref} exactly. Refs longer than
+ * {@link org.sitenetsoft.quarkus.social.store.SocialPostStore#MAX_INDEXED_REF_LENGTH} (the column) get no row.
  */
 @Entity
 @Table(name = "social_ref", indexes = {

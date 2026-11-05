@@ -11,6 +11,12 @@ import org.sitenetsoft.quarkus.social.Network;
  */
 public interface SocialPostStore {
 
+    /**
+     * The longest ref value {@link #findPostIdByRef} resolves. A longer ref is stored with its state (it round-trips
+     * through {@link #find}) but never resolves: every store answers empty for it.
+     */
+    int MAX_INDEXED_REF_LENGTH = 1024;
+
     Optional<StoredPost> find(String postId);
 
     /** Adds a new post; false (and nothing changed) when the post id already exists. */
@@ -23,7 +29,10 @@ public interface SocialPostStore {
      */
     boolean replace(StoredPost post, long expectedVersion);
 
-    /** The post whose state on {@code network} has {@code ref} among its {@code refs} values. */
+    /**
+     * The post whose state on {@code network} has {@code ref} among its {@code refs} values (the engine's reserved
+     * {@code _url} ref excepted); empty for a ref longer than {@link #MAX_INDEXED_REF_LENGTH}.
+     */
     Optional<String> findPostIdByRef(Network network, String ref);
 
     /** At most {@code limit} posts, most recently written first. */

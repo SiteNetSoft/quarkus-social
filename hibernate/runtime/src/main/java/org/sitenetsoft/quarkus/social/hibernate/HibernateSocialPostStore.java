@@ -140,6 +140,9 @@ public class HibernateSocialPostStore implements SocialPostStore {
 
     @Override
     public Optional<String> findPostIdByRef(Network network, String ref) {
+        if (ref == null || ref.length() > MAX_INDEXED_REF_LENGTH) {
+            return Optional.empty();
+        }
         return inTransaction(() -> em
                 .createQuery("select r.postId from SocialRefEntity r where r.network = :network "
                         + "and r.refHash = :hash and r.ref = :ref order by r.id", String.class)
@@ -194,8 +197,9 @@ public class HibernateSocialPostStore implements SocialPostStore {
             });
             em.persist(row);
             Set<String> distinct = new LinkedHashSet<>();
+            // a ref longer than the social_ref column stays in the state's JSON only: it is not resolvable
             state.refs().forEach((name, value) -> {
-                if (!NetworkState.URL_REF.equals(name)) {
+                if (!NetworkState.URL_REF.equals(name) && value.length() <= MAX_INDEXED_REF_LENGTH) {
                     distinct.add(value);
                 }
             });

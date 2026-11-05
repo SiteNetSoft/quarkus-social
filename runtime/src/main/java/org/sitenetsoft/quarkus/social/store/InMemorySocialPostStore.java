@@ -65,6 +65,9 @@ public class InMemorySocialPostStore implements SocialPostStore {
 
     @Override
     public Optional<String> findPostIdByRef(Network network, String ref) {
+        if (ref == null || ref.length() > MAX_INDEXED_REF_LENGTH) {
+            return Optional.empty(); // as a database store, which indexes only refs that fit its column
+        }
         return posts.values().stream()
                 .map(Entry::post)
                 .filter(p -> {

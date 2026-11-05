@@ -7,7 +7,10 @@ import org.sitenetsoft.quarkus.social.Network;
 
 import io.smallrye.mutiny.Uni;
 
-/** Reactive form of {@link SocialPostStore}, same contract; the engine prefers it when the app provides both. */
+/**
+ * Reactive form of {@link SocialPostStore}, same contract (refs longer than
+ * {@link SocialPostStore#MAX_INDEXED_REF_LENGTH} never resolve); the engine prefers it when the app provides both.
+ */
 public interface ReactiveSocialPostStore {
 
     Uni<Optional<StoredPost>> find(String postId);
