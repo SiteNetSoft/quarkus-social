@@ -3,6 +3,7 @@ package org.sitenetsoft.quarkus.social.activitypub.deployment;
 import org.sitenetsoft.quarkus.social.activitypub.ActivityPubSocialAdapter;
 import org.sitenetsoft.quarkus.social.activitypub.DefaultActivityPubAccountLinks;
 import org.sitenetsoft.quarkus.social.activitypub.DeliveryTracker;
+import org.sitenetsoft.quarkus.social.activitypub.InboundInteractions;
 
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.deployment.annotations.BuildStep;
@@ -22,7 +23,7 @@ class SocialActivityPubProcessor {
     AdditionalBeanBuildItem beans() {
         return AdditionalBeanBuildItem.builder()
                 .addBeanClasses(ActivityPubSocialAdapter.class, DeliveryTracker.class,
-                        DefaultActivityPubAccountLinks.class)
+                        DefaultActivityPubAccountLinks.class, InboundInteractions.class)
                 .setUnremovable()
                 .build();
     }
