@@ -31,7 +31,7 @@
     <quarkus.version>3.40.1</quarkus.version>
     <surefire-plugin.version>3.5.3</surefire-plugin.version>
     <compiler-plugin.version>3.14.0</compiler-plugin.version>
-    <jsoup.version>1.24.1</jsoup.version>
+    <jsoup.version>1.23.2</jsoup.version>
     <build-helper-plugin.version>3.6.1</build-helper-plugin.version>
   </properties>
   <dependencyManagement>
