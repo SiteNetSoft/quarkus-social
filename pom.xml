@@ -23,9 +23,15 @@
     <quarkus.version>3.40.1</quarkus.version>
     <surefire-plugin.version>3.5.3</surefire-plugin.version>
     <compiler-plugin.version>3.14.0</compiler-plugin.version>
+    <jsoup.version>1.24.1</jsoup.version>
   </properties>
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>org.jsoup</groupId>
+        <artifactId>jsoup</artifactId>
+        <version>${jsoup.version}</version>
+      </dependency>
       <dependency>
         <groupId>io.quarkus</groupId>
         <artifactId>quarkus-bom</artifactId>
