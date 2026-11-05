@@ -16,6 +16,7 @@
     <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-activitypub-deployment</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-arc-deployment</artifactId></dependency>
     <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-junit-internal</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-narayana-jta</artifactId><scope>test</scope></dependency>
     <dependency><groupId>org.awaitility</groupId><artifactId>awaitility</artifactId><scope>test</scope></dependency>
     <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-activitypub-test</artifactId><version>${project.version}</version><scope>test</scope></dependency>
     <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-social-test</artifactId><version>${project.version}</version><scope>test</scope></dependency>

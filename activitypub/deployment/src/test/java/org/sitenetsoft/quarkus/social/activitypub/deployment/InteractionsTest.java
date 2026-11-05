@@ -40,6 +40,7 @@ import org.sitenetsoft.quarkus.activitypub.test.FakeActor;
 import org.sitenetsoft.quarkus.activitypub.test.FakeFediverseServer;
 import org.sitenetsoft.quarkus.social.Post;
 import org.sitenetsoft.quarkus.social.Social;
+import org.sitenetsoft.quarkus.social.events.ReplyAudience;
 import org.sitenetsoft.quarkus.social.events.SocialFollow;
 import org.sitenetsoft.quarkus.social.events.SocialReaction;
 import org.sitenetsoft.quarkus.social.events.SocialReactionUndone;
@@ -89,14 +90,16 @@ public class InteractionsTest {
         Note reply = note(rita, post.objectId);
         reply.content("<p>nice</p><script>alert(1)</script><img src=x onerror=alert(2)>"
                 + "<a href=\"javascript:alert(3)\">bad</a><a href=\"https://blog.example/x\">good</a>");
-        reply.url(ObjectOrLink.of(URI.create("https://ap-test.example.net/@rita/1")));
+        URI replyUrl = rita.id().resolve("/@rita/1");
+        reply.url(ObjectOrLink.of(replyUrl));
         assertEquals(202, rita.post(INBOX, create(rita, reply), Scheme.CAVAGE).statusCode());
 
         SocialReply event = seenIn(seen.replies, r -> r.author().id().equals(rita.id().toString()));
         assertEquals(post.postId, event.postId());
         assertEquals("alice", event.account());
         assertEquals(ACTIVITYPUB, event.network());
-        assertEquals(java.util.Optional.of(URI.create("https://ap-test.example.net/@rita/1")), event.url());
+        assertEquals(java.util.Optional.of(replyUrl), event.url());
+        assertEquals(ReplyAudience.DIRECT, event.audience());
         String html = event.html().toLowerCase();
         assertFalse(html.contains("<script"), html);
         assertFalse(html.contains("alert(1)"), html);
@@ -105,6 +108,58 @@ public class InteractionsTest {
         assertTrue(html.contains("nice"), html);
         assertTrue(html.contains("href=\"https://blog.example/x\""), html);
         assertTrue(html.contains("nofollow"), html);
+    }
+
+    @Test
+    void replyUrlOnAnotherHostIsDropped() {
+        Published post = publish();
+        FakeActor ron = fake.actor("ron");
+        Note reply = note(ron, post.objectId);
+        reply.url(ObjectOrLink.of(URI.create("https://ap-test.example.net/@ron/1")));
+        assertEquals(202, ron.post(INBOX, create(ron, reply), Scheme.CAVAGE).statusCode());
+        SocialReply event = seenIn(seen.replies, r -> r.author().id().equals(ron.id().toString()));
+        assertEquals(java.util.Optional.of(reply.id()), event.url());
+    }
+
+    @Test
+    void createAttributedToSomeoneElseFiresNothing() {
+        Published post = publish();
+        FakeActor sam = fake.actor("sam");
+        FakeActor victim = fake.actor("victim");
+        Note forged = note(sam, post.objectId);
+        forged.attributedTo(ObjectOrLink.of(victim.id()));
+        assertEquals(202, sam.post(INBOX, create(sam, forged), Scheme.CAVAGE).statusCode());
+        // processed in order for one sender: the like after it proves the forged create is done
+        assertEquals(202, sam.post(INBOX, like(sam, post.objectId), Scheme.CAVAGE).statusCode());
+        seenIn(seen.reactions, r -> r.author().id().equals(sam.id().toString()));
+        assertTrue(seen.replies.stream().noneMatch(r -> r.postId().equals(post.postId)
+                && (r.author().id().equals(sam.id().toString()) || r.author().id().equals(victim.id().toString()))));
+    }
+
+    @Test
+    void replyAudiencesAreDerived() {
+        Published post = publish();
+        URI pub = URI.create("https://www.w3.org/ns/activitystreams#Public");
+        assertEquals(ReplyAudience.PUBLIC, audienceOf(post, "pat", n -> n.to(ObjectOrLink.of(pub))));
+        assertEquals(ReplyAudience.UNLISTED, audienceOf(post, "uli", n -> n.cc(ObjectOrLink.of(pub))));
+        assertEquals(ReplyAudience.FOLLOWERS_ONLY, audienceOf(post, "fol",
+                n -> n.to(ObjectOrLink.of(URI.create(n.attributedTo().get(0).uri().get() + "/followers")))));
+        assertEquals(ReplyAudience.DIRECT, audienceOf(post, "dim", n -> {
+        }));
+    }
+
+    private ReplyAudience audienceOf(Published post, String name, java.util.function.Consumer<Note> addressing) {
+        FakeActor from = fake.actor(name);
+        Note reply = note(from, post.objectId);
+        reply.to(new ObjectOrLink[0]);
+        addressing.accept(reply);
+        if (reply.to().isEmpty() && reply.cc().isEmpty()) {
+            reply.to(ObjectOrLink.of(URI.create(BASE + "/users/alice")));
+        }
+        Create create = create(from, reply);
+        create.to(reply.to().toArray(ObjectOrLink[]::new));
+        assertEquals(202, from.post(INBOX, create, Scheme.CAVAGE).statusCode());
+        return seenIn(seen.replies, r -> r.author().id().equals(from.id().toString())).audience();
     }
 
     @Test
