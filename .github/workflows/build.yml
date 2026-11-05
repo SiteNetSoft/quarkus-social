@@ -1,0 +1,74 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  jvm:
+    name: JVM (Quarkus ${{ matrix.quarkus }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        quarkus: [ "3.40.1", "latest" ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - name: Resolve Quarkus version
+        id: q
+        run: |
+          if [ "${{ matrix.quarkus }}" = "latest" ]; then
+            V=$(curl -s https://repo1.maven.org/maven2/io/quarkus/quarkus-bom/maven-metadata.xml | grep -oP '(?<=<version>)3\.\d+\.\d+(?=</version>)' | sort -V | tail -1)
+          else
+            V=${{ matrix.quarkus }}
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Build sibling dependencies, in order
+        run: |
+          for repo in quarkus-safe-fetch quarkus-webfinger quarkus-http-signatures quarkus-activitypub multikey-java quarkus-did quarkus-atproto; do
+            git clone --depth 1 https://github.com/SiteNetSoft/$repo ../$repo
+            mvn -B -T 8 -f ../$repo/pom.xml install -DskipTests -Dquarkus.version=${{ steps.q.outputs.version }}
+          done
+      # unit and extension tests, then the sample app's ITs against the packaged jar
+      - run: mvn -B -T 8 verify -Dquarkus.version=${{ steps.q.outputs.version }}
+      - name: Test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-jvm-${{ matrix.quarkus }}
+          path: "**/target/*-reports/"
+
+  native:
+    name: Native
+    runs-on: ubuntu-latest
+    needs: jvm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          # Quarkus 3.40 requires GraalVM/Mandrel 25; the code still targets release 21
+          java-version: 25
+          distribution: mandrel
+          cache: maven
+      - name: Build sibling dependencies, in order
+        run: |
+          for repo in quarkus-safe-fetch quarkus-webfinger quarkus-http-signatures quarkus-activitypub multikey-java quarkus-did quarkus-atproto; do
+            git clone --depth 1 https://github.com/SiteNetSoft/$repo ../$repo
+            mvn -B -T 8 -f ../$repo/pom.xml install -DskipTests
+          done
+      # builds the sample app (integration-tests) as a native executable and runs its ITs against it
+      - run: >
+          mvn -B -T 8 verify -Dnative -pl integration-tests -am
+          -Dquarkus.native.additional-build-args=-J-XX:TieredStopAtLevel=1,--parallelism=8
+      - name: Test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-native
+          path: "**/target/*-reports/"

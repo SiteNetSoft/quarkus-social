@@ -1,0 +1,17 @@
+name: "Social"
+artifact: ${project.groupId}:${project.artifactId}:${project.version}
+description: "Protocol-neutral publishing of posts to Mastodon (ActivityPub) and Bluesky (AT Protocol)"
+metadata:
+  keywords:
+    - "social"
+    - "activitypub"
+    - "mastodon"
+    - "atproto"
+    - "bluesky"
+  guide: "https://github.com/SiteNetSoft/quarkus-social"
+  categories:
+    - "web"
+  status: "experimental"
+  capabilities:
+    provides:
+      - "org.sitenetsoft.quarkus.social"
