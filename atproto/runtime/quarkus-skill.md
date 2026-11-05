@@ -24,3 +24,10 @@ Experimental. The AT Protocol (Bluesky) network of `quarkus-social`; it comes in
 - The OAuth scope the output needs is logged at startup when `quarkus.atproto.oauth.scope` doesn't cover it (default
   output: `repo:app.bsky.feed.post?action=create&action=delete repo:site.standard.document?action=create&action=update&action=delete`).
 - Errors: `SESSION_EXPIRED` (sign in again), `SCOPE_MISSING`, `UNAVAILABLE` (retryable), `REJECTED`.
+- `quarkus.atproto.oauth.session.max-age` is `14d`: authors reconnect every two weeks (`SESSION_EXPIRED`). A
+  confidential client (`client-base-url` set) allows a higher value.
+- Standard.site `site` defaults to `https://<host>[:port]` of the post URL even for an `http` URL, and the document
+  `path` drops the query string; apps that need otherwise provide a `StandardSitePublications` bean.
+- Settings: `enabled` (`true`), `output` (`post-and-document`), `content-warning` (`skip`), `edit-post` (`keep`),
+  `post-url-template` (`https://bsky.app/profile/{did}/post/{rkey}`), all under `quarkus.social.atproto.`.
+- The Dev UI card shows the scope needed vs configured through `AtprotoDevUiContribution`.

@@ -1,0 +1,8 @@
+* xref:index.adoc[Introduction]
+* xref:getting-started.adoc[Getting started]
+* xref:results-and-retry.adoc[Results, retry and edits]
+* xref:activitypub.adoc[Mastodon (ActivityPub)]
+* xref:bluesky.adoc[Bluesky (AT Protocol)]
+* xref:interactions.adoc[Replies, reactions and follows]
+* xref:storage.adoc[Storage]
+* xref:live-check.adoc[Live check]

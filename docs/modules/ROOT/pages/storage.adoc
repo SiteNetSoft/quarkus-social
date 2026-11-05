@@ -1,0 +1,31 @@
+= Storage
+
+The engine records, per post and network, what was written: the state (`PUBLISHED`, `SKIPPED`, `FAILED`,
+`DELETED`), the protocol ids, the human link, the delivery counts, and the post as last published. That is what makes
+retries safe and what `social.status(postId)` and the Dev UI show.
+
+== The default: in memory
+
+Without further setup an in-memory store is used. It logs one warning in production: *publish state is lost on
+restart*, so a retried publish after a restart cannot know what was already sent. Use a persistent store for
+anything real.
+
+== quarkus-social-hibernate
+
+Add `quarkus-social-hibernate`, a JDBC driver and `quarkus.datasource.db-kind`; `HibernateSocialPostStore` replaces
+the default, no code.
+
+* Tables (default persistence unit): `social_post`, `social_network_state`, `social_ref`. No migrations are shipped:
+  create the tables with your migration tool and use `validate` in production
+  (`quarkus.hibernate-orm.schema-management.strategy=drop-and-create` in tests).
+* Every store call runs in its own new transaction, also when the caller has one. The rows record what was already
+  sent to the networks, so an application rollback must not erase them. This is also why `publish` must not be
+  called inside your transaction.
+* `replace` is a compare-and-set on `social_post.version`; this is what lets several nodes share the store.
+* Do not write the `social_*` tables yourself.
+
+== Your own store
+
+Provide a `SocialPostStore` (or `ReactiveSocialPostStore`) bean: `find`, `insert`, `replace` (compare-and-set),
+`findPostIdByRef`, `recent`. `quarkus-social-test` has `SocialPostStoreContractTest` to run against it. When both
+forms are provided the reactive one wins.

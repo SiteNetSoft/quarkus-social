@@ -1,0 +1,63 @@
+= Quarkus Social
+
+`quarkus-social` is one call that publishes a post to every network your application supports and tells you, per
+network, what happened:
+
+[source,java]
+----
+@Inject Social social;
+
+PublishResult result = social.publish("alice", Post.builder("post-123")
+        .kind(Kind.ARTICLE)
+        .title("Hello")
+        .summary("One-line description")
+        .html("<p>Body</p>")
+        .url(URI.create("https://blog.example/hello"))
+        .tags(List.of("quarkus"))
+        .build());
+
+result.result(Network.ACTIVITYPUB);   // Published | Skipped | Failed
+result.result(Network.ATPROTO);
+----
+
+Status: experimental.
+
+== What is in it
+
+[cols="2,3"]
+|===
+|Artifact |What it is
+
+|`quarkus-social`
+|The neutral API (`Social`, `ReactiveSocial`, `Post`, the results), the publish engine, the SPIs (`SocialAdapter`,
+`SocialPostStore`, `SocialAccountLinks`), the neutral interaction events and the Dev UI card. It knows no protocol:
+no ActivityPub or AT Protocol type appears in its API or its dependencies.
+
+|`quarkus-social-activitypub`
+|The Mastodon / Fediverse network, through `quarkus-activitypub`. See xref:activitypub.adoc[].
+
+|`quarkus-social-atproto`
+|The Bluesky network (and Standard.site documents), through `quarkus-atproto-oauth`. See xref:bluesky.adoc[].
+
+|`quarkus-social-hibernate`
+|Keeps the publish state in your database. See xref:storage.adoc[].
+
+|`quarkus-social-test`
+|A recording adapter and assertions for your tests.
+|===
+
+An adapter comes in by itself when your application has its protocol extension: add `quarkus-social` and
+`quarkus-activitypub` and the ActivityPub adapter is there; add `quarkus-atproto-oauth` and so is the Bluesky one.
+Adding an adapter artifact directly works too.
+
+== What it promises
+
+* One result per network, always: `Published`, `Skipped` (with a reason) or `Failed` (with a code and whether a retry
+  can help). A network problem is never an exception, and one network's failure never hides another's result.
+* Content a network cannot carry as asked is skipped, never posted more widely than the author asked.
+* A retry never duplicates: networks that have the post are left alone, the others get only what is missing.
+* HTML from your application is sanitized once, before any network sees it; HTML from the networks is sanitized
+  before your application sees it.
+
+Replies from Mastodon reach your application as CDI events. Bluesky replies, likes and follows are not delivered yet:
+they need the network event stream (`quarkus-atproto-sync`, Milestone 5).

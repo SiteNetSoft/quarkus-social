@@ -6,9 +6,10 @@ exposes a protocol type.
 
 Status: experimental.
 
-This repository currently holds the repo skeleton and the neutral model (`Post`, `Network`,
-`PublishResult`, `NetworkResult`, `Capabilities`). The engine, adapters, persistence, Dev UI and a
-sample app are added in later steps.
+Modules: `quarkus-social` (neutral API, publish engine, Dev UI card), `quarkus-social-activitypub`,
+`quarkus-social-atproto`, `quarkus-social-hibernate` (persistent publish state) and `quarkus-social-test`. The
+documentation is in `docs/` (Antora): getting started, results and retry, each network, interactions, storage and
+the manual live check.
 
 ## Build order
 

@@ -1,0 +1,108 @@
+= Bluesky (AT Protocol)
+
+`quarkus-social-atproto` publishes through `quarkus-atproto-oauth`. It comes in when your application has both
+`quarkus-social` and `quarkus-atproto-oauth`.
+
+== Setup
+
+. *Link mode is required*: `quarkus.atproto.oauth.mode=link`. Login mode has no application account to link a DID
+  to. In login mode the adapter logs an error at startup and every post is `Skipped(NOT_LINKED, "quarkus.atproto.oauth.mode must be link")`.
+. *The OAuth scope must cover the writes.* With the default output, set
++
+----
+quarkus.atproto.oauth.scope=atproto repo:app.bsky.feed.post?action=create&action=delete repo:site.standard.document?action=create&action=update&action=delete
+----
++
+The adapter works out the scope its settings need (`quarkus.social.atproto.output` changes it), compares it with
+`quarkus.atproto.oauth.scope` at startup and logs one warning naming the scope to configure when it is not covered.
+The Dev UI card shows needed against configured. A write the granted scope does not cover is
+`Failed(SCOPE_MISSING)`. The broad scope `atproto transition:generic` covers everything.
+. Users link their account with the `quarkus-atproto` link flow (see its OAuth page): the linked DID is the account's
+  Bluesky identity. An account with several linked DIDs is `Failed(REJECTED)`: resolve it with your own
+  `SocialAccountLinks`.
+
+=== Sessions last 14 days by default
+
+`quarkus.atproto.oauth.session.max-age` defaults to `14d`, so with the defaults an author reconnects Bluesky every two
+weeks; until then publishing is `Failed(SESSION_EXPIRED)` (not retryable until the user signs in again: prompt them).
+A *confidential client* (`quarkus.atproto.oauth.client-base-url` set, `private_key_jwt`) gets longer-lived refresh
+tokens from the authorization server; with one, raise `quarkus.atproto.oauth.session.max-age` for longer sessions.
+
+== Output
+
+`quarkus.social.atproto.output` (default `post-and-document`):
+
+[cols="1,3"]
+|===
+|Value |Result
+
+|`post`
+|One `app.bsky.feed.post`. A `NOTE` is the text with link and hashtag facets (UTF-8 byte offsets). An `ARTICLE` is a
+teaser (title, a blank line, the summary or the first paragraph, trimmed on a grapheme boundary with "…") with a link
+card to the canonical URL; the teaser never exceeds 300 graphemes. No thumbnail yet.
+
+|`document`
+|One `site.standard.document`, `ARTICLE` only (a `NOTE` is `Skipped(KIND_NOT_SUPPORTED)`).
+
+|`post-and-document`
+|A `NOTE` gets the post. An `ARTICLE` gets the post first, then the document whose `bskyPostRef` points at the post.
+If the post succeeds and the document fails, the result is `Failed` with the post in `refs`; a retry writes only the
+document.
+|===
+
+A `NOTE` over 300 graphemes is `Failed(TEXT_TOO_LONG)`, never silently truncated; check `capabilities()` first.
+
+Only `PUBLIC` posts are published: `UNLISTED` and `FOLLOWERS` are `Skipped(VISIBILITY_NOT_SUPPORTED)`, because
+Bluesky has neither and posting publicly would widen the audience.
+
+== Standard.site documents
+
+* The document's `site` comes from the `StandardSitePublications` SPI. *The default is `https://<host>[:port]` of the
+  post's URL, even for an `http` URL* (a "loose document" the Lexicon allows). Apps that keep a
+  `site.standard.publication`, or need another origin, provide a `StandardSitePublications` bean returning the
+  publication's `at://` URI or the site URL; an empty answer means the default.
+* The document `path` is the post URL's path *without its query string*. Apps that need a query or any other path
+  provide `StandardSitePublications` too.
+* `title`, `description`, `textContent`, `tags`, `publishedAt` and `updatedAt` come from the post.
+
+== Content warnings
+
+Bluesky has no free-text warning, only the self-labels `sexual`, `nudity`, `porn` and `graphic-media`.
+`quarkus.social.atproto.content-warning` (default `skip`) decides what a post with a `contentWarning` (or
+`sensitive`) becomes:
+
+* `skip`: `Skipped(CONTENT_WARNING_NOT_SUPPORTED)`; a warned post never appears there unwarned.
+* `drop`: published without any warning (you opt in explicitly).
+* `label:<value>`: published with that self-label (on the document too), for example `label:graphic-media`.
+
+Any other value fails at startup. A post's own `atprotoLabels(...)` win over the setting.
+
+== Record keys and retries
+
+Record keys are deterministic per post (a TID derived from the publication time and the post id, with a fixed
+sequence of fallback keys when two posts share a microsecond), so a retry never duplicates a record: "already
+exists" is read back and reported as `Published`.
+
+== Edits and deletes
+
+The document is updated (`put`, swapped on the stored CID). The Bluesky post is kept unless
+`quarkus.social.atproto.edit-post=recreate`. Deletes remove both records.
+
+== Results
+
+Refs: `post.uri`, `post.cid`, `document.uri`, `document.cid`. `Published.url` comes from
+`quarkus.social.atproto.post-url-template` (default `https://bsky.app/profile/{did}/post/{rkey}`). Errors:
+`SESSION_EXPIRED` (sign in again), `SCOPE_MISSING`, `UNAVAILABLE` (retryable), `REJECTED`.
+
+== Interactions
+
+Replies, likes and follows from Bluesky are not delivered in this milestone; they arrive with the network event
+stream in Milestone 5.
+
+== Settings
+
+* `quarkus.social.atproto.enabled` (default `true`)
+* `quarkus.social.atproto.output` (default `post-and-document`)
+* `quarkus.social.atproto.content-warning` (default `skip`)
+* `quarkus.social.atproto.edit-post` (default `keep`)
+* `quarkus.social.atproto.post-url-template` (default `https://bsky.app/profile/{did}/post/{rkey}`)

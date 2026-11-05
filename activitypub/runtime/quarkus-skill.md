@@ -14,3 +14,6 @@ Experimental. The ActivityPub network of `quarkus-social`; it comes in by itself
   means finished.
 - The object id is derived from the post id: a retried publish never creates a second object.
 - `quarkus.social.activitypub.enabled=false` answers every call `Skipped(DISABLED_BY_CONFIG)`.
+- Settings under `quarkus.social.activitypub.`: `enabled` (`true`), `article-style` (`note-with-link`).
+- Delivery is single-node, as in `quarkus-activitypub`; `SocialReply.audience` says who a reply was for (render only
+  `PUBLIC`/`UNLISTED` publicly); events fire after the inbox transaction commits.

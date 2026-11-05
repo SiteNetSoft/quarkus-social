@@ -1,0 +1,130 @@
+= Getting started
+
+== Dependencies
+
+[source,xml]
+----
+<dependency>
+  <groupId>org.sitenetsoft.quarkus</groupId>
+  <artifactId>quarkus-social</artifactId>
+</dependency>
+<!-- the networks you want; each one brings its adapter -->
+<dependency>
+  <groupId>org.sitenetsoft.quarkus</groupId>
+  <artifactId>quarkus-activitypub</artifactId>
+</dependency>
+<dependency>
+  <groupId>org.sitenetsoft.quarkus</groupId>
+  <artifactId>quarkus-atproto-oauth</artifactId>
+</dependency>
+----
+
+Requires Java 21 and Quarkus 3.40.1.
+
+== Publish
+
+[source,java]
+----
+@Inject Social social;       // blocking; ReactiveSocial is the Mutiny form of the same engine
+
+PublishResult r = social.publish("alice", Post.builder("post-123")
+        .text("Hello from Quarkus")
+        .tags(List.of("quarkus"))
+        .build());
+----
+
+`"alice"` is your application's own account id (for example the security principal name). The post id (`post-123`)
+is yours too: it must be stable, because `update`, `delete`, `status` and every retry use it. A `Post` needs `text`
+or `html` (or both); an `ARTICLE` also needs a `title` and a canonical `url`.
+
+The rest of the API:
+
+[source,java]
+----
+social.update("alice", post);        // same post id: sends the new content where the post is published
+social.delete("alice", "post-123");  // removes it from every network that has it
+social.status("post-123");           // last known per-network state, delivery progress included
+social.capabilities();               // Map<Network, Capabilities> of the active adapters
+----
+
+=== No transaction around publish
+
+*Do not call `publish`, `update` or `delete` inside your own transaction.* Networks are remote calls, and the
+ActivityPub part runs in its own transaction. The store writes its state in its own transactions too, so an
+application rollback does not erase what was already sent. In dev mode a call inside an active transaction logs a
+warning once.
+
+Publish after your transaction commits (for example from an `@Observes(during = TransactionPhase.AFTER_SUCCESS)`
+observer). The blocking methods also refuse to run on the Vert.x event loop; use `ReactiveSocial` there.
+
+== Linking accounts
+
+Which network identity an application account publishes as:
+
+* *ActivityPub*: the local actor with the same username as the account (`LocalActors.register`).
+* *Bluesky*: the single DID the user linked with the `quarkus-atproto` link flow (`quarkus.atproto.oauth.mode=link`).
+
+An account with no identity on a network gets `Skipped(NOT_LINKED)` for it. To use your own mapping, provide a
+`SocialAccountLinks` (or `ReactiveSocialAccountLinks`) bean; no module ships one, and when yours is present the
+adapters use it instead of their default.
+
+== Settings
+
+All settings are runtime settings.
+
+[cols="3,1,4"]
+|===
+|Setting |Default |Meaning
+
+|`quarkus.social.timeout` |`30s`
+|How long one adapter call (the account link lookup included) may take. Over it, that network is
+`Failed(TIMEOUT)`, retryable, and the other networks' results are still returned.
+
+|`quarkus.social.activitypub.enabled` |`true`
+|When false every call is answered `Skipped(DISABLED_BY_CONFIG)` for ActivityPub.
+
+|`quarkus.social.activitypub.article-style` |`note-with-link`
+|What an `ARTICLE` becomes: `note-with-link` (a `Note` with title, teaser and the canonical link) or `article` (an
+`Article` with the full HTML).
+
+|`quarkus.social.atproto.enabled` |`true`
+|When false every call is answered `Skipped(DISABLED_BY_CONFIG)` for Bluesky.
+
+|`quarkus.social.atproto.output` |`post-and-document`
+|`post-and-document`, `post` or `document`: which records a post becomes.
+
+|`quarkus.social.atproto.content-warning` |`skip`
+|What a post with a content warning (or marked sensitive) becomes on Bluesky: `skip`, `drop` or
+`label:<sexual\|nudity\|porn\|graphic-media>`. Anything else fails at startup.
+
+|`quarkus.social.atproto.edit-post` |`keep`
+|What an edit does to the Bluesky post: `keep` or `recreate`.
+
+|`quarkus.social.atproto.post-url-template` |`https://bsky.app/profile/{did}/post/{rkey}`
+|The human-readable link of a Bluesky post.
+|===
+
+The settings of the protocol extensions (`quarkus.atproto.oauth.*`, the ActivityPub actors and delivery) are
+documented with those extensions.
+
+== The Dev UI card
+
+In dev mode the Dev UI has a *Social* card (http://localhost:8080/q/dev-ui/) with:
+
+* the active adapters and their capabilities, and why an adapter cannot publish right now (for example Bluesky
+  outside link mode);
+* for Bluesky, the OAuth scope the settings need against `quarkus.atproto.oauth.scope`;
+* the last 20 posts with their per-network state and delivery progress;
+* a *Publish a test post* form (account, text, kind, visibility). It publishes for real, to every network the
+  account is linked to, and exists in dev mode only.
+
+== Testing your code
+
+`quarkus-social-test` provides `RecordingSocialAdapter`, a network (`test`) that records every request, with
+assertions, so your tests can check what would have been published without either protocol:
+
+[source,java]
+----
+@Singleton
+public class TestNetwork extends RecordingSocialAdapter { }
+----

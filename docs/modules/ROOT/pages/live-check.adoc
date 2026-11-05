@@ -1,0 +1,60 @@
+= Live check
+
+A manual end-to-end check with real accounts: one `publish()` from an application reaches a Mastodon account and a
+Bluesky account, with a result per network. The automated tests cover the same flow against fakes; this check proves
+it against the real networks. It writes public posts: use test accounts.
+
+== Prerequisites
+
+* JDK 21 and Maven; the sibling projects built and installed in the order given in the repository README.
+* An application with `quarkus-social`, `quarkus-activitypub` and `quarkus-atproto-oauth`, running in dev mode.
+* ActivityPub: a public HTTPS hostname that reaches the application (for example `ap-test.example.net`, through a
+  tunnel or a test server) with a local actor, and a Mastodon account that follows it.
+* Bluesky: `quarkus.atproto.oauth.mode=link`, the scope from xref:bluesky.adoc[], and a Bluesky account
+  (`alice.bsky.social`) linked to the application account through the link flow.
+
+== Steps
+
+. Start the application in dev mode and open the Dev UI card *Social*: both networks are listed as active and, for
+  Bluesky, the scope configured covers the scope needed.
+. Fill *Publish a test post* (account, a short text, `NOTE`, `PUBLIC`) and press *Publish*. Expect `published` for
+  both networks; the ActivityPub note says how many inboxes were queued.
+. Open the Bluesky link in the result and check the post. Check the Mastodon timeline of the follower: the post
+  arrives within a minute. In the card, the recent post shows the ActivityPub delivery counts reaching `pending 0`.
+. Publish an `ARTICLE` (first line is its title). Check the Mastodon note (title, teaser, link), the Bluesky teaser
+  with its link card, and the `site.standard.document` (read it back with
+  `com.atproto.repo.getRecord`, collection `site.standard.document`).
+. From your application call `social.update(...)` with changed text for the article: the document changes, the
+  Bluesky post is kept ("Bluesky post not edited"), the Mastodon note shows as edited.
+. Reply to the Mastodon note from the follower's account: your `SocialReply` observer fires with audience `PUBLIC`.
+. Publish a `FOLLOWERS` post: Mastodon gets it for followers only; Bluesky is `Skipped(VISIBILITY_NOT_SUPPORTED)`.
+. Call `social.delete(...)`: the post disappears from both networks.
+
+== Troubleshooting
+
+[cols="2,3"]
+|===
+|Symptom |What to do
+
+|Bluesky `Skipped(NOT_LINKED)` with "mode must be link"
+|Set `quarkus.atproto.oauth.mode=link` and link the account.
+
+|Bluesky `Failed(SCOPE_MISSING)`
+|Add the scope shown by the card (or the startup warning) to `quarkus.atproto.oauth.scope` and link again.
+
+|Bluesky `Failed(SESSION_EXPIRED)`
+|Sessions end after `quarkus.atproto.oauth.session.max-age` (14 days); the user links again.
+
+|ActivityPub `Published` but nothing arrives
+|Delivery is asynchronous: check the delivery counts in the card; failed deliveries show the remote server's answer
+in the `quarkus-activitypub` logs.
+|===
+
+== Record of runs
+
+[cols="1,1,3"]
+|===
+|Date |Networks |Result
+
+|pending |a Mastodon server and a bsky.social-hosted PDS |Not run yet.
+|===

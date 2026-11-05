@@ -1,0 +1,60 @@
+= Replies, reactions and follows
+
+Interactions reach your application as neutral CDI events. In this milestone only ActivityPub delivers them; Bluesky
+interactions arrive in Milestone 5.
+
+[cols="2,3"]
+|===
+|Event |Fired when
+
+|`SocialReply(postId, account, network, author, html, audience, url, receivedAt)`
+|A reply to a post published through `quarkus-social` arrives.
+
+|`SocialReaction(postId, account, network, author, type, receivedAt)`
+|A like or repost (`LIKE`, `REPOST`) of such a post.
+
+|`SocialReactionUndone(...)`
+|The like or repost is withdrawn.
+
+|`SocialFollow(account, network, author, state)`
+|Someone follows or unfollows an application account (`ACCEPTED`, `PENDING`, `REJECTED`, `UNDONE`).
+|===
+
+`author` is a `SocialAuthor(network, id, handle, displayName, profileUrl, avatarUrl)` with what the network said,
+without extra fetches. Activities that match no stored post fire no social event (the native `quarkus-activitypub`
+events still fire). Storing interactions is the application's job; the social store keeps only publish state.
+
+[source,java]
+----
+void onReply(@Observes SocialReply reply) {
+    if (reply.audience() == ReplyAudience.PUBLIC || reply.audience() == ReplyAudience.UNLISTED) {
+        comments.add(reply.postId(), reply.author(), reply.html());   // html is sanitized
+    }
+}
+----
+
+== Render only public replies publicly
+
+`SocialReply.audience` (`ReplyAudience`) says who the reply was addressed to: `PUBLIC`, `UNLISTED`, `FOLLOWERS_ONLY`
+or `DIRECT`. *Apps should render only `PUBLIC` and `UNLISTED` replies publicly.* The other two were not meant for the
+world and are fired so an application can route them privately.
+
+== When the events fire
+
+Social events fire *after the inbox transaction commits* (immediately when there is none, never on rollback), so an
+observer that fails cannot roll the inbox's work back. An observer that writes to the database should use
+`@Transactional(REQUIRES_NEW)`, because no transaction of the inbox is active in it.
+
+== What is checked
+
+* A reply is reported only when its object is on the signer's host and attributed to the signer alone.
+* `html` is sanitized with the same allowlist as outgoing HTML (`script`, event handlers, `style` and non-`http`,
+  `https`, `mailto` links never pass; links get `rel="nofollow noopener"`). The raw form stays available through the
+  native `InboundActivityContext`.
+* Lookups are bounded (at most 5 `inReplyTo` entries and 2 seconds per activity); nothing is fetched.
+* A failing step or observer is logged and never reaches the inbox.
+
+== Delivery progress
+
+`SocialDeliveryProgress(postId, network, progress)` reports ActivityPub delivery counts of a published post
+(`delivered`, `failed`, `pending`; `pending == 0` means finished).

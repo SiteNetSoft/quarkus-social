@@ -1,6 +1,7 @@
 package org.sitenetsoft.quarkus.social.atproto.deployment;
 
 import org.sitenetsoft.quarkus.atproto.oauth.OAuthBuildTimeConfig;
+import org.sitenetsoft.quarkus.social.atproto.AtprotoDevUiContribution;
 import org.sitenetsoft.quarkus.social.atproto.AtprotoRepo;
 import org.sitenetsoft.quarkus.social.atproto.AtprotoSocialAdapter;
 import org.sitenetsoft.quarkus.social.atproto.AtprotoWrites;
@@ -34,7 +35,8 @@ class SocialAtprotoProcessor {
         }
         beans.produce(AdditionalBeanBuildItem.builder()
                 .addBeanClasses(AtprotoSocialAdapter.class, AtprotoWrites.class, AtprotoRepo.class,
-                        DefaultAtprotoAccountLinks.class, DefaultStandardSitePublications.class, ScopeAdvisor.class)
+                        DefaultAtprotoAccountLinks.class, DefaultStandardSitePublications.class, ScopeAdvisor.class,
+                        AtprotoDevUiContribution.class)
                 .setUnremovable()
                 .build());
     }

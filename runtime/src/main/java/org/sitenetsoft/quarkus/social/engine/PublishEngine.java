@@ -314,6 +314,11 @@ public class PublishEngine {
         return store.find(postId);
     }
 
+    /** At most {@code limit} posts, most recently written first (Dev UI and diagnostics). */
+    public Uni<List<StoredPost>> recent(int limit) {
+        return store.recent(limit);
+    }
+
     public Map<Network, Capabilities> capabilities() {
         Map<Network, Capabilities> capabilities = new LinkedHashMap<>();
         adapters.forEach((network, adapter) -> capabilities.put(network, adapter.capabilities()));

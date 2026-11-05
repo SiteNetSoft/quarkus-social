@@ -1,0 +1,90 @@
+= Results, retry and edits
+
+== The result
+
+`publish`, `update` and `delete` return a `PublishResult`: one `NetworkResult` per network.
+
+[cols="1,3"]
+|===
+|Result |Meaning
+
+|`Published(url, refs, note, resent)`
+|The network has the post. `url` is a link a person can open. `refs` holds protocol ids as strings. `resent` is true
+when the network already had the post and its old result is returned again.
+
+|`Skipped(reason, detail)`
+|Nothing was sent, on purpose. Reasons: `NOT_LINKED`, `VISIBILITY_NOT_SUPPORTED`, `KIND_NOT_SUPPORTED`,
+`CONTENT_WARNING_NOT_SUPPORTED`, `DISABLED_BY_CONFIG`, `NOT_PUBLISHED_HERE` (update or delete of a post the network
+never got).
+
+|`Failed(code, reason, retryable, refs)`
+|The network did not take the post. `refs` lists what does exist there (a half-published Bluesky article has its
+post). Codes: `TIMEOUT`, `UNAVAILABLE`, `SESSION_EXPIRED`, `SCOPE_MISSING`, `TEXT_TOO_LONG`,
+`CONTENT_WARNING_NOT_SUPPORTED`, `REJECTED`, `INTERNAL`, `IN_PROGRESS`.
+|===
+
+`publish` throws a `SocialException` only for caller errors: an unknown post id (on `update`), a post that belongs to
+another account, an edit no network can carry, a deleted post id, every network already having the post, or no
+active adapter at all. A hanging or crashing adapter is a `Failed` result for its network; the others are still
+returned.
+
+*ActivityPub `Published` means accepted and queued for delivery.* Delivery is asynchronous; see
+xref:activitypub.adoc[].
+
+== Retry without duplicates
+
+The store records, per post and network, what was written.
+
+* Call `publish` again with the same post id to retry. A network where the post is `Published` is left alone (its
+  old result is returned, `resent = true`). Every other targeted network is tried again, writing only what is
+  missing: a `Failed` network, and `Skipped(NOT_LINKED)` or `Skipped(DISABLED_BY_CONFIG)` (the account may have been
+  linked, the setting changed).
+* *A repeated `publish` retries the stored post*, as first published (content and publication time); the content of
+  the `Post` you pass is ignored. Content changes need `update`.
+* `publish` throws only when every targeted network already has the post.
+* A deleted post id cannot be published again; publish under a new id.
+* Protocol ids are derived from the post id (the ActivityPub object id, the Bluesky record keys), so a retry after a
+  timeout, where the first call may have reached the network, never creates a second object.
+* A network failing with `IN_PROGRESS` is being published by another call (possibly on another node): see below.
+
+== Edits
+
+`update` sends the new content to the networks that have the post.
+
+* *Visibility and kind changes are refused* (`SocialException`): Mastodon ignores audience changes in an `Update`, and
+  Bluesky cannot narrow a public post, so an edit could leave old copies public. Delete the post and publish a new
+  one under a new id.
+* Adding a network is not an update: call `publish` again, which fills the networks that never got the post.
+* Content warnings: carried where the network supports them (ActivityPub). On Bluesky they follow
+  `quarkus.social.atproto.content-warning`; an edit that adds a warning to a post kept as it is on Bluesky is
+  `Failed(CONTENT_WARNING_NOT_SUPPORTED)` and the existing Bluesky copy is unchanged, so delete it there.
+* Bluesky shows no edits: by default the Standard.site document is updated and the Bluesky post is kept
+  (`Published` with the note "Bluesky post not edited"). `quarkus.social.atproto.edit-post=recreate` deletes and
+  recreates the post, losing its likes and replies.
+
+== Several nodes
+
+Several nodes can share one store (`quarkus-social-hibernate` or your own). The engine takes a per-network lease
+(state `Failed` with code `IN_PROGRESS`, valid for the timeout plus 30 seconds) before it calls an adapter, so two
+nodes never send the same post to a network at once: the second gets `Failed(IN_PROGRESS)`, retryable, and sees the
+first call's result once it has finished. A node that crashed mid-publish blocks the network only until its lease
+expires.
+
+ActivityPub delivery itself is single-node, as in `quarkus-activitypub`: the delivery queue runs where the post was
+published, and so do the delivery counts that arrive afterwards as `SocialDeliveryProgress`.
+
+== Capabilities
+
+`social.capabilities()` tells what each active adapter can do before you publish: visibilities, kinds, edits,
+deletes, content warnings, text limit (`maxTextGraphemes`), HTML and interactions.
+
+[cols="2,3,3"]
+|===
+| |ActivityPub |AT Protocol
+
+|Visibilities |`PUBLIC`, `UNLISTED`, `FOLLOWERS` |`PUBLIC` only
+|Kinds |`NOTE`, `ARTICLE` |`NOTE`, `ARTICLE`
+|Content warnings |yes |per setting (`skip` by default)
+|Text limit |none enforced |300 graphemes for the post text
+|Interactions |yes |not yet (Milestone 5)
+|===

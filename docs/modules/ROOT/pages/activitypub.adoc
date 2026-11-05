@@ -1,0 +1,54 @@
+= Mastodon (ActivityPub)
+
+`quarkus-social-activitypub` publishes through `quarkus-activitypub`. It comes in when your application has both
+`quarkus-social` and `quarkus-activitypub`.
+
+== Account
+
+An application account publishes as the local actor with the same username (`LocalActors.register`), unless you
+provide a `SocialAccountLinks` bean. An unknown account is `Skipped(NOT_LINKED)`.
+
+== Output
+
+[cols="1,3"]
+|===
+|Post |Becomes
+
+|`NOTE`
+|A `Note` with the HTML body. Tags become `Hashtag` objects and `#tag` links; the language goes in `contentMap`; a
+content warning becomes `sensitive` and `summary`.
+
+|`ARTICLE`, `article-style=note-with-link` (default)
+|A `Note` with the title, the summary (or the first paragraph) and the canonical link, `url` set to the canonical URL.
+Mastodon shows it as a normal post with a link preview.
+
+|`ARTICLE`, `article-style=article`
+|An `Article` with `name`, `summary`, the full HTML `content` and `url`. Richer for readers that support it; Mastodon
+shows the title and a link.
+|===
+
+Visibility: `PUBLIC` is addressed to Public with followers in `cc`; `UNLISTED` to followers with Public in `cc`;
+`FOLLOWERS` to followers only. Nothing is ever sent more widely than the post asks.
+
+Edits send the whole new object as an `Update`; deletes send a `Delete`.
+
+== Published means queued
+
+`Published` means the activity was accepted and queued for delivery. Its note says how many inboxes were queued and
+how many failed at once (for example an unresolvable or blocked domain). Later counts arrive as a
+`SocialDeliveryProgress(postId, network, progress)` CDI event and in `social.status(postId)`; `pending == 0` means
+delivery is finished.
+
+Refs on the result: `object` (the object id, also the url), `activity` (the `Create`), `activity.update.<n>`,
+`activity.delete`.
+
+The object id is derived from the post id, so a retried publish never creates a second object.
+
+Delivery is single-node, as in `quarkus-activitypub`: the outbox queue lives on the node that published. Several
+nodes sharing a store never send the same post twice (see xref:results-and-retry.adoc[the per-network lease]), but
+the delivery counts come from the publishing node.
+
+== Settings
+
+* `quarkus.social.activitypub.enabled` (default `true`)
+* `quarkus.social.activitypub.article-style` (default `note-with-link`; `article`)
