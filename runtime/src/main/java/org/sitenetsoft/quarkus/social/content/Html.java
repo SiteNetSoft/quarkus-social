@@ -1,5 +1,6 @@
 package org.sitenetsoft.quarkus.social.content;
 
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,6 +28,7 @@ public final class Html {
 
     private static final Pattern URL = Pattern.compile("https?://[^\\s<>\"]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern PARAGRAPH_BREAK = Pattern.compile("\\n[ \\t]*\\n\\s*");
+    private static final Pattern LINK_SCHEME = Pattern.compile("(?i)(https?://|mailto:)\\S");
     private static final String TRAILING_PUNCTUATION = ".,;:!?)]}'\"";
     private static final Set<String> BLOCKS = Set.of("p", "blockquote", "pre", "ul", "ol",
             "h1", "h2", "h3", "h4", "h5", "h6");
@@ -101,7 +103,10 @@ public final class Html {
         return b.toString();
     }
 
-    /** Plain text of the HTML: block elements and {@code <br>} become newlines, entities are decoded. */
+    /**
+     * Plain text of the HTML: block elements and {@code <br>} become newlines, entities are decoded, and a link whose
+     * text isn't its address becomes {@code text (href)} so the address survives (http, https and mailto links only).
+     */
     public static String toText(String html) {
         if (html == null || html.isBlank()) {
             return "";
@@ -133,10 +138,24 @@ public final class Html {
             public void tail(Node node, int depth) {
                 if (node instanceof Element e && BLOCKS.contains(e.normalName())) {
                     blankLine(out);
+                } else if (node instanceof Element e && e.normalName().equals("a")) {
+                    // an empty link shows just its address
+                    hiddenAddress(e).ifPresent(href -> out.append(e.text().isBlank() ? href : " (" + href + ")"));
                 }
             }
         });
         return out.toString().replaceAll("[ \\t]+\\n", "\n").replaceAll("\\n{3,}", "\n\n").strip();
+    }
+
+    /** The address of a link whose text doesn't show it. */
+    private static Optional<String> hiddenAddress(Element a) {
+        String href = a.attr("href").strip();
+        if (!LINK_SCHEME.matcher(href).lookingAt()) {
+            return Optional.empty();
+        }
+        String text = a.text().strip();
+        boolean shown = text.equals(href) || href.regionMatches(true, 0, "mailto:", 0, 7) && text.equals(href.substring(7));
+        return shown ? Optional.empty() : Optional.of(href);
     }
 
     private static void newline(StringBuilder out) {

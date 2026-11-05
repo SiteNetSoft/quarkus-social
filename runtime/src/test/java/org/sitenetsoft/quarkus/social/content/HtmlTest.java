@@ -82,7 +82,26 @@ class HtmlTest {
         assertEquals("one\ntwo", Html.toText("<p>one<br>two</p>"));
         assertEquals("a\n\nb", Html.toText("<p>a</p><p>b</p>"));
         assertEquals("T\n\n- x\n- y", Html.toText("<h1>T</h1><ul><li>x</li><li>y</li></ul>"));
-        assertEquals("see the docs & more", Html.toText("<p>see <a href=\"https://blog.example\">the docs</a> &amp; more</p>"));
+        assertEquals("see the docs (https://blog.example) & more",
+                Html.toText("<p>see <a href=\"https://blog.example\">the docs</a> &amp; more</p>"));
+    }
+
+    @Test
+    void toTextKeepsLinkAddresses() {
+        // a link showing its address stays as it is
+        assertEquals("go https://blog.example/x now",
+                Html.toText("<p>go <a href=\"https://blog.example/x\">https://blog.example/x</a> now</p>"));
+        assertEquals("mail alice@blog.example",
+                Html.toText("<p>mail <a href=\"mailto:alice@blog.example\">alice@blog.example</a></p>"));
+        assertEquals("mail me (mailto:alice@blog.example)",
+                Html.toText("<p>mail <a href=\"mailto:alice@blog.example\">me</a></p>"));
+        assertEquals("https://blog.example/empty", Html.toText("<a href=\"https://blog.example/empty\"></a>"));
+        // other schemes (unsanitized input) are not shown
+        assertEquals("click", Html.toText("<a href=\"javascript:alert(1)\">click</a>"));
+        // an HTML-only post keeps its links in the text the text-only networks get
+        PostContent c = PostContent.of(Post.builder("l1")
+                .html("<p>Read <a href=\"https://blog.example/post?a=1&amp;b=2\">my post</a>.</p>").build());
+        assertEquals("Read my post (https://blog.example/post?a=1&b=2).", c.text());
     }
 
     @Test
