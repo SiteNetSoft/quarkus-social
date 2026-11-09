@@ -14,14 +14,12 @@ import org.sitenetsoft.quarkus.social.Visibility;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import io.quarkus.runtime.annotations.RegisterForReflection;
-
 /**
  * The JSON form of a {@link Post}: plain strings, lists and booleans, so it needs no Jackson modules and reads back
  * the same in any {@code ObjectMapper}. {@code networks} is null when the post has no network restriction. The names
- * are spelled out because a native image keeps neither parameter names nor record component metadata for Jackson.
+ * are spelled out because a native image keeps neither parameter names nor record component metadata for Jackson;
+ * the deployment processor registers the class for reflection.
  */
-@RegisterForReflection
 record PostSnapshot(
         @JsonProperty("id") String id,
         @JsonProperty("kind") String kind,
