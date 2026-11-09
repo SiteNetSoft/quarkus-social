@@ -90,5 +90,29 @@
         </plugin>
       </plugins>
     </pluginManagement>
+    <plugins>
+      <plugin>
+        <!-- each module's tests get their own free HTTP test port: with mvn -T, the extension tests of several
+             modules run at the same time and would otherwise all bind the default 8081 -->
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>reserve-test-port</id>
+            <phase>process-test-classes</phase>
+            <goals><goal>reserve-network-port</goal></goals>
+            <configuration><portNames><portName>social.test.port</portName></portNames></configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <quarkus.http.test-port>${social.test.port}</quarkus.http.test-port>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
   </build>
 </project>

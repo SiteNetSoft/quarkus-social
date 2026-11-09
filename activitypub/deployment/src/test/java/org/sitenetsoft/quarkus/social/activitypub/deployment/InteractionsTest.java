@@ -326,6 +326,11 @@ public class InteractionsTest {
 
     /** One port for both class loaders QuarkusExtensionTest loads the class in. */
     static int reservedPort() {
+        // the build reserves one free port per module (root pom); a system property outranks overrideConfigKey
+        Integer reserved = Integer.getInteger("quarkus.http.test-port");
+        if (reserved != null) {
+            return reserved;
+        }
         String key = "social.activitypub.interactions.port";
         synchronized (System.getProperties()) {
             String existing = System.getProperty(key);
